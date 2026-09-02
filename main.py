@@ -48,7 +48,7 @@ DEFAULT_START_YEAR = CURRENT_YEAR - 10
 TEN_YEARS_SPAN_DESC = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR}"
 
 from pipelines import EdgarPipeline
-from forensic_engine import ForensicEvaluator
+from forensic_engine import ForensicEvaluator, generate_batch_summary_md
 from pipelines.lakehouse import (
     SecDeraDownloader,
     SecToDuckDBPipeline,
@@ -263,10 +263,15 @@ def audit_batch_tickers(ticker_list: list, output_report: str = ""):
     if results:
         df_out = pd.DataFrame(results).sort_values(by="综合风险评分", ascending=False)
         actual_path = safe_save_excel(df_out, actual_out_name)
+
+        # 同步生成 Reader-Friendly Markdown 诊断简报
+        md_file = actual_path.replace('.xlsx', '_体检简报.md')
+        actual_md = generate_batch_summary_md(results, md_file)
+
         print("\n" + "=" * 70)
         print(f"🎉 批量法务排雷完成！成功分析 {len(df_out)} 只股票")
-        print(f"● 报告智能命名: {os.path.basename(actual_path)}")
-        print(f"● 报告导出路径: {os.path.abspath(actual_path)}")
+        print(f"● 🌟 决策简报: {os.path.abspath(actual_md)} (推荐优先阅读，直观排版优美)")
+        print(f"● 📊 原始底表: {os.path.abspath(actual_path)} (Excel 格式全量勾稽明细)")
         print("-" * 70)
         print("⏱️ 【批量审计耗时统计】:")
         print(f"  ● 批量分析总耗时  : {t_batch_total:.2f} 秒")

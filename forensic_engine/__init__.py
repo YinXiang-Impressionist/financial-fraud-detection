@@ -11,9 +11,12 @@ from .models.dechow_f_score import compute_sloan_accrual, compute_dechow_f_score
 from .models.statistical_anomalies import compute_modified_jones_accrual, compute_statistical_decoupling_metrics
 from .models.benfords_law import BenfordTest
 from .tag_mapping import normalize_dataframe_columns, normalize_record_dict
+from .report_generator import generate_market_scan_summary_md, generate_batch_summary_md
 
 __all__ = [
     "ForensicEvaluator",
+    "generate_market_scan_summary_md",
+    "generate_batch_summary_md",
     "compute_beneish_components",
     "compute_beneish_dataframe",
     "compute_altman_z",

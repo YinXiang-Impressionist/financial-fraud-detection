@@ -34,7 +34,7 @@ CURRENT_YEAR = _NOW.year
 DEFAULT_START_YEAR = CURRENT_YEAR - 10
 ACTIVE_LOOKBACK_YEAR = CURRENT_YEAR - 4  # 扫描活跃上市公司的有效观察期
 
-from forensic_engine import ForensicEvaluator
+from forensic_engine import ForensicEvaluator, generate_market_scan_summary_md
 
 
 def generate_report_filename(prefix: str = "美股上市公司财报排雷榜单", fy: str = "", all_years: bool = False, company: str = "", actual_min_y: str = "", actual_max_y: str = "") -> str:
@@ -412,6 +412,15 @@ class USStockFraudDetector:
 
         actual_output = safe_save_excel(sheets_data, out_file)
 
+        # 同步生成极具阅读美感与直观透彻的 Reader-Friendly Markdown 总结研报
+        md_file = actual_output.replace('.xlsx', '_排雷总结研报.md')
+        actual_md_path = generate_market_scan_summary_md(
+            scan_meta={"min_year": actual_min_y, "max_year": actual_max_y, "total_filings": len(df_filings_by_company)},
+            df_top_risks=df_company_summary,
+            df_full_company=df_company_summary,
+            output_md_path=md_file
+        )
+
         print("\n" + "=" * 70)
         print("🎉 【美股全市场财务造假与粉饰风险扫描完成！】")
         print("=" * 70)
@@ -421,9 +430,9 @@ class USStockFraudDetector:
         print(f"● 橙色关注公司: {len(df_company_summary[(df_company_summary['当前综合风险评分'] >= 30) & (df_company_summary['当前综合风险评分'] < 50)]):,} 家")
         print(f"● 黄色提示公司: {len(df_company_summary[(df_company_summary['当前综合风险评分'] >= 15) & (df_company_summary['当前综合风险评分'] < 30)]):,} 家")
         print(f"● 绿色安全公司: {len(df_company_summary[df_company_summary['当前综合风险评分'] < 15]):,} 家")
-        print(f"● 报告智能命名: {os.path.basename(actual_output)}")
-        print(f"● 全景报告导出: {os.path.abspath(actual_output)}")
-        print("  - 表格特性: 包含【排雷诊断结论】与分条【具体风险成因与证据说明(Notes)】")
+        print("-" * 70)
+        print(f"● 🌟 决策研报: {os.path.abspath(actual_md_path)} (强烈推荐优先阅读！直观优雅)")
+        print(f"● 📊 全景底表: {os.path.abspath(actual_output)} (Excel 多Sheet全量穿透底表)")
         print(f"  - Sheet 1: {'公司历年穿透明细 (跨年度连续排列)' if is_multi_year else '美股上市公司排雷总榜 (每家公司独立一行)'}")
         print("=" * 70)
         print("\n【美股风险评分 TOP 20 公司排行榜】:")
