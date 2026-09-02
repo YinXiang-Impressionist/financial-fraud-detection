@@ -23,23 +23,27 @@ if sys.platform.startswith('win'):
 from forensic_engine import ForensicEvaluator
 
 
-def safe_save_excel(df: pd.DataFrame, file_path: str) -> str:
-    """安全保存 Excel 文件，若被 Excel 软件打开锁定则自动保存为备用名称"""
-    try:
-        df.to_excel(file_path, index=False, engine='openpyxl')
-        return file_path
-    except PermissionError:
-        base, ext = os.path.splitext(file_path)
-        alt_path = f"{base}_最新{ext}"
+def safe_save_excel(data, file_path: str) -> str:
+    """安全保存 Excel 文件（支持单 DataFrame 或多 Sheet 字典），若被 Excel 软件打开锁定则自动保存为备用名称"""
+    base, ext = os.path.splitext(file_path)
+    for attempt_path in [file_path, f"{base}_最新{ext}"]:
         try:
-            df.to_excel(alt_path, index=False, engine='openpyxl')
-            print(f"⚠️ 提示: 检测到原文件 {os.path.basename(file_path)} 正被 Excel 占用，已安全保存至: {os.path.basename(alt_path)}")
-            return alt_path
-        except Exception:
+            if isinstance(data, dict):
+                with pd.ExcelWriter(attempt_path, engine='openpyxl') as writer:
+                    for sheet_name, df_sheet in data.items():
+                        df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
+            else:
+                data.to_excel(attempt_path, index=False, engine='openpyxl')
+
+            if attempt_path != file_path:
+                print(f"⚠️ 提示: 检测到原文件 {os.path.basename(file_path)} 正被 Excel 占用，已安全保存至: {os.path.basename(attempt_path)}")
+            return attempt_path
+        except PermissionError:
+            continue
+        except Exception as e:
+            print(f"[-] 保存 Excel 失败: {e}")
             return file_path
-    except Exception as e:
-        print(f"[-] 保存 Excel 失败: {e}")
-        return file_path
+    return file_path
 
 
 class USStockFraudDetector:
@@ -257,24 +261,96 @@ class USStockFraudDetector:
         df_out['总资产_百万美元'] = (df_out['assets'].fillna(0) / 1e6).round(2)
         df_out['股东权益_百万美元'] = (df_out['equity'].fillna(0) / 1e6).round(2)
         df_out['商誉_百万美元'] = (df_out['goodwill'].fillna(0) / 1e6).round(2)
-
         df_out = df_out.drop(columns=['sales', 'net_income', 'cfo', 'assets', 'equity', 'goodwill'])
-        df_out = df_out.sort_values(by='total_risk_score', ascending=False)
 
-        actual_output = safe_save_excel(df_out, out_file)
+        # -------------------------------------------------------------
+        # 核心逻辑纠正：严格以【公司 (Company/CIK)】为核心主键排列，而非零散文件
+        # -------------------------------------------------------------
+        # 1. 构建【公司排雷总榜 (Company Summary)】：每家公司独占一行
+        df_latest_by_company = df_out.sort_values(by='period', ascending=False).groupby('cik', as_index=False).first()
+
+        # 计算公司级跨期画像：历史最高风险、审计总期数
+        agg_stats = df_out.groupby('cik').agg(
+            历史最高风险评分=('total_risk_score', 'max'),
+            纳入审计财报期数=('period', 'count')
+        ).reset_index()
+
+        df_company_summary = pd.merge(df_latest_by_company, agg_stats, on='cik', how='left')
+
+        # 排序：优先按当前最新综合风险分倒序，相同时看历史最高风险
+        df_company_summary = df_company_summary.sort_values(
+            by=['total_risk_score', '历史最高风险评分'],
+            ascending=[False, False]
+        )
+
+        df_company_summary = df_company_summary.rename(columns={
+            'cik': 'CIK',
+            'name': '公司名称',
+            'period': '最新申报期',
+            'fy': '最新财年',
+            'form': '最新报表类型',
+            'total_risk_score': '当前综合风险评分',
+            'risk_level': '当前风险等级',
+            'hit_risk_count': '当前预警项数',
+            'altman_z_score': '最新Altman_Z',
+            'altman_zone': '最新Z分区间',
+            'sloan_accrual': '最新Sloan净应计',
+            'beneish_m_score': '最新Beneish_M',
+            'beneish_is_manipulator': '最新疑似操纵'
+        })
+
+        # 2. 构建【公司历年穿透明细 (Filings Timeline by Company)】：
+        # 同一家公司的历年 10-K/10-Q 连续紧挨排列，时间倒序追踪财务异化轨迹
+        df_out['公司最高风险分'] = df_out.groupby('cik')['total_risk_score'].transform('max')
+        df_filings_by_company = df_out.sort_values(
+            by=['公司最高风险分', 'cik', 'period'],
+            ascending=[False, True, False]
+        ).drop(columns=['公司最高风险分'])
+
+        df_filings_by_company = df_filings_by_company.rename(columns={
+            'cik': 'CIK',
+            'name': '公司名称',
+            'period': '财报报告期',
+            'fy': '财年',
+            'form': '申报类型',
+            'total_risk_score': '当期风险评分',
+            'risk_level': '当期风险等级',
+            'hit_risk_count': '当期预警项数',
+            'altman_z_score': 'Altman_Z分值',
+            'altman_zone': 'Z分区间',
+            'sloan_accrual': 'Sloan净应计',
+            'beneish_m_score': 'Beneish_M分值',
+            'beneish_is_manipulator': '疑似报表操纵'
+        })
+
+        # 3. 构建【高危操纵关注专区 (High Risk Watchlist)】
+        df_red_flags = df_company_summary[df_company_summary['当前综合风险评分'] >= 50].copy()
+
+        # 组装多 Sheet 工作簿
+        sheets_data = {
+            "美股上市公司排雷总榜": df_company_summary,
+            "公司历年报表穿透明细": df_filings_by_company,
+            "高危操纵关注名单": df_red_flags
+        }
+
+        actual_output = safe_save_excel(sheets_data, out_file)
 
         print("\n" + "=" * 70)
         print("🎉 【美股全市场财务造假与粉饰风险扫描完成！】")
         print("=" * 70)
-        print(f"● 扫描财报总数: {len(df_out):,} 份")
-        print(f"● 红色高危记录: {len(df_out[df_out['total_risk_score'] >= 50]):,} 份")
-        print(f"● 橙色关注记录: {len(df_out[(df_out['total_risk_score'] >= 30) & (df_out['total_risk_score'] < 50)]):,} 份")
-        print(f"● 黄色提示记录: {len(df_out[(df_out['total_risk_score'] >= 15) & (df_out['total_risk_score'] < 30)]):,} 份")
-        print(f"● 绿色安全记录: {len(df_out[df_out['total_risk_score'] < 15]):,} 份")
+        print(f"● 扫描覆盖公司: {len(df_company_summary):,} 家上市公司 (以公司为核心排列)")
+        print(f"● 穿透财报总数: {len(df_filings_by_company):,} 份申报记录")
+        print(f"● 红色高危公司: {len(df_company_summary[df_company_summary['当前综合风险评分'] >= 50]):,} 家")
+        print(f"● 橙色关注公司: {len(df_company_summary[(df_company_summary['当前综合风险评分'] >= 30) & (df_company_summary['当前综合风险评分'] < 50)]):,} 家")
+        print(f"● 黄色提示公司: {len(df_company_summary[(df_company_summary['当前综合风险评分'] >= 15) & (df_company_summary['当前综合风险评分'] < 30)]):,} 家")
+        print(f"● 绿色安全公司: {len(df_company_summary[df_company_summary['当前综合风险评分'] < 15]):,} 家")
         print(f"● 全景报告导出: {os.path.abspath(actual_output)}")
+        print("  - Sheet 1: 美股上市公司排雷总榜 (每家公司独立一行，按综合风险倒序)")
+        print("  - Sheet 2: 公司历年报表穿透明细 (同一家公司历年报表紧挨连续排列)")
+        print("  - Sheet 3: 高危操纵关注名单 (直接提取红字重点排查名单)")
         print("=" * 70)
-        print("\n【美股风险评分 TOP 20 排行榜】:")
-        print(df_out[["cik", "name", "fy", "period", "total_risk_score", "risk_level", "hit_risk_count", "altman_z_score", "sloan_accrual"]].head(20).to_string(index=False))
+        print("\n【美股风险评分 TOP 20 公司排行榜】:")
+        print(df_company_summary[["CIK", "公司名称", "最新申报期", "当前综合风险评分", "当前风险等级", "历史最高风险评分", "最新Altman_Z", "最新Sloan净应计"]].head(20).to_string(index=False))
 
 
 def main():
