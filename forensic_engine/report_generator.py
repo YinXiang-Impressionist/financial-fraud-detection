@@ -9,6 +9,14 @@ from datetime import datetime
 import pandas as pd
 
 
+def _find_col(df: pd.DataFrame, candidates: list) -> str:
+    """在 DataFrame 中鲁棒查找匹配的列名"""
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return ""
+
+
 def generate_market_scan_summary_md(
     scan_meta: dict,
     df_top_risks: pd.DataFrame,
@@ -21,10 +29,25 @@ def generate_market_scan_summary_md(
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     total_companies = len(df_full_company)
     
-    red_df = df_full_company[df_full_company['当前综合风险评分'] >= 50]
-    orange_df = df_full_company[(df_full_company['当前综合风险评分'] >= 30) & (df_full_company['当前综合风险评分'] < 50)]
-    yellow_df = df_full_company[(df_full_company['当前综合风险评分'] >= 15) & (df_full_company['当前综合风险评分'] < 30)]
-    green_df = df_full_company[df_full_company['当前综合风险评分'] < 15]
+    score_col = _find_col(df_full_company, ['当前综合风险评分', '综合风险评分', 'total_risk_score'])
+    cik_col = _find_col(df_full_company, ['CIK', 'cik'])
+    name_col = _find_col(df_full_company, ['公司名称', 'name'])
+    period_col = _find_col(df_full_company, ['最新申报期', '财报报告期', 'period'])
+    diag_col = _find_col(df_full_company, ['排雷诊断结论', 'diagnostic_summary'])
+    level_col = _find_col(df_full_company, ['当前风险等级', '风险等级', 'risk_level'])
+    notes_col = _find_col(df_full_company, [
+        '具体风险成因与排雷证据说明(Notes)',
+        '当期具体风险成因与排雷证据说明(Notes)',
+        'risk_reasons_notes'
+    ])
+    beneish_col = _find_col(df_full_company, ['最新Beneish_M', 'Beneish_M分值', 'beneish_m_score'])
+
+    scores = pd.to_numeric(df_full_company[score_col], errors='coerce').fillna(0) if score_col else pd.Series([0]*len(df_full_company))
+    
+    red_df = df_full_company[scores >= 50]
+    orange_df = df_full_company[(scores >= 30) & (scores < 50)]
+    yellow_df = df_full_company[(scores >= 15) & (scores < 30)]
+    green_df = df_full_company[scores < 15]
 
     red_cnt = len(red_df)
     orange_cnt = len(orange_df)
@@ -64,13 +87,13 @@ def generate_market_scan_summary_md(
 
     top20 = df_top_risks.head(20)
     for idx, (_, row) in enumerate(top20.iterrows(), 1):
-        cik = row.get('CIK', '')
-        name = row.get('公司名称', '')
-        period = row.get('最新申报期', '')
-        score = row.get('当前综合风险评分', 0)
-        level = row.get('当前风险等级', '')
-        diag = row.get('排雷诊断结论', '')
-        reasons = str(row.get('当期具体风险成因与排雷证据说明(Notes)', ''))
+        cik = row.get(cik_col, '') if cik_col else ''
+        name = row.get(name_col, '') if name_col else ''
+        period = row.get(period_col, '') if period_col else ''
+        score = row.get(score_col, 0) if score_col else 0
+        level = row.get(level_col, '') if level_col else ''
+        diag = row.get(diag_col, '') if diag_col else ''
+        reasons = str(row.get(notes_col, '')) if notes_col else ''
         
         clean_reasons = reasons.replace('\n', '; ').strip('; ')
         if len(clean_reasons) > 120:
@@ -85,53 +108,80 @@ def generate_market_scan_summary_md(
     lines.append("## 💣 3. 四大核心舞弊手法集中爆发区 (Forensic Deep Dive)")
     lines.append("")
 
+    # 子分类 3.1: 贝尼斯 M-Score 涉嫌操纵收入/资产
     lines.append("### 3.1 贝尼斯 M-Score 涉嫌操纵收入/资产 (Beneish M > -1.78)")
     lines.append("> **识别逻辑**: 8 变量综合计量模型，捕捉毛利下滑逆势扩张、异常折旧变动与超额应收挂账。")
     lines.append("")
     lines.append("| CIK | 公司名称 | 申报期 | Beneish M-Score | 操纵标记 | 综合风险分 |")
     lines.append("| :---: | :--- | :---: | :---: | :---: | :---: |")
     
-    beneish_col = 'Beneish_M分值' if 'Beneish_M分值' in df_top_risks.columns else 'beneish_m_score'
-    if beneish_col in df_top_risks.columns:
-        b_df = df_top_risks[pd.to_numeric(df_top_risks[beneish_col], errors='coerce') > -1.78].sort_values(by=beneish_col, ascending=False).head(5)
-        for _, r in b_df.iterrows():
-            m_val = round(float(r[beneish_col]), 3)
-            lines.append(f"| `{r.get('CIK', '')}` | **{r.get('公司名称', '')}** | `{r.get('最新申报期', '')}` | **{m_val}** | ❌ 疑似系统操纵 | {r.get('当前综合风险评分', '')} 分 |")
+    b_found = False
+    if beneish_col:
+        m_vals = pd.to_numeric(df_top_risks[beneish_col], errors='coerce')
+        b_df = df_top_risks[m_vals > -1.78].copy()
+        if not b_df.empty:
+            b_df['m_num'] = pd.to_numeric(b_df[beneish_col], errors='coerce')
+            b_df = b_df.sort_values(by='m_num', ascending=False).head(5)
+            for _, r in b_df.iterrows():
+                m_val = round(float(r[beneish_col]), 3)
+                lines.append(f"| `{r.get(cik_col, '')}` | **{r.get(name_col, '')}** | `{r.get(period_col, '')}` | **{m_val}** | ❌ 疑似系统操纵 | {r.get(score_col, '')} 分 |")
+            b_found = True
+    if not b_found:
+        lines.append("| - | - | - | ✅ 市场未见显著操纵突破 -1.78 阈值标的 | - | - |")
     lines.append("")
 
-    lines.append("### 3.2 修正琼斯模型可操纵应计 (DA) 异常 (DA > 0.08)")
-    lines.append("> **识别逻辑**: 剥离行业正常商业应计，捕捉管理层通过跨期会计估计蓄意调节账面利润的残差。")
+    # 子分类 3.2: 净现比恶性断裂与造血严重衰竭
+    lines.append("### 3.2 净现比恶性断裂与造血严重衰竭 (纸面富贵虚增利润)")
+    lines.append("> **识别逻辑**: 账面净利润表现良好但经营现金流为巨额净流出，戳穿纸面富贵与关联虚假销售。")
     lines.append("")
     lines.append("| CIK | 公司名称 | 申报期 | 诊断结论 | 综合风险分 |")
     lines.append("| :---: | :--- | :---: | :--- | :---: |")
     
-    notes_col = '当期具体风险成因与排雷证据说明(Notes)'
-    if notes_col in df_top_risks.columns:
-        da_df = df_top_risks[df_top_risks[notes_col].astype(str).str.contains('修正琼斯|可操纵应计', na=False)].head(5)
-        for _, r in da_df.iterrows():
-            lines.append(f"| `{r.get('CIK', '')}` | **{r.get('公司名称', '')}** | `{r.get('最新申报期', '')}` | {r.get('排雷诊断结论', '')} | **{r.get('当前综合风险评分', '')}** 分 |")
+    cfo_found = False
+    if notes_col:
+        cfo_df = df_top_risks[df_top_risks[notes_col].astype(str).str.contains('净现比|造血|流出', na=False)].head(5)
+        if not cfo_df.empty:
+            for _, r in cfo_df.iterrows():
+                lines.append(f"| `{r.get(cik_col, '')}` | **{r.get(name_col, '')}** | `{r.get(period_col, '')}` | {r.get(diag_col, '')} | **{r.get(score_col, '')}** 分 |")
+            cfo_found = True
+    if not cfo_found:
+        lines.append("| - | - | - | ✅ 市场未见显著净现比恶化标的 | - |")
     lines.append("")
 
-    lines.append("### 3.3 存贷双高 / 资金严重受限与大股东占用疑云")
-    lines.append("> **识别逻辑**: 账面坐拥巨额货币资金却同时背负沉重高息短债，警惕虚假存款、大股东违规质押或资金受限。")
+    # 子分类 3.3: Sloan 高应计异象与应收账款反常扩张
+    lines.append("### 3.3 Sloan 高应计异象与应收账款反常挂账 (假销售/提前确认嫌疑)")
+    lines.append("> **识别逻辑**: 应计利润占总资产超 10%，或应收账款占营收比例反常飙升，警惕虚构订单或向关联方压货。")
     lines.append("")
     lines.append("| CIK | 公司名称 | 申报期 | 诊断结论 | 综合风险分 |")
     lines.append("| :---: | :--- | :---: | :--- | :---: |")
-    if notes_col in df_top_risks.columns:
-        cash_df = df_top_risks[df_top_risks[notes_col].astype(str).str.contains('存贷双高|利息吞噬', na=False)].head(5)
-        for _, r in cash_df.iterrows():
-            lines.append(f"| `{r.get('CIK', '')}` | **{r.get('公司名称', '')}** | `{r.get('最新申报期', '')}` | {r.get('排雷诊断结论', '')} | **{r.get('当前综合风险评分', '')}** 分 |")
+    
+    accrual_found = False
+    if notes_col:
+        accrual_df = df_top_risks[df_top_risks[notes_col].astype(str).str.contains('应收账款|高应计|Sloan', na=False)].head(5)
+        if not accrual_df.empty:
+            for _, r in accrual_df.iterrows():
+                lines.append(f"| `{r.get(cik_col, '')}` | **{r.get(name_col, '')}** | `{r.get(period_col, '')}` | {r.get(diag_col, '')} | **{r.get(score_col, '')}** 分 |")
+            accrual_found = True
+    if not accrual_found:
+        lines.append("| - | - | - | ✅ 市场未见显著高应计与应收反常标的 | - |")
     lines.append("")
 
-    lines.append("### 3.4 巨额商誉悬顶与大洗澡减值危机")
-    lines.append("> **识别逻辑**: 商誉占净资产比重奇高（>30%），一旦前期高溢价并购标的暴雷将引发雪崩式减值亏损。")
+    # 子分类 3.4: 商誉悬顶 / 业绩大变脸洗澡
+    lines.append("### 3.4 巨额商誉悬顶与业绩大变脸减值大洗澡")
+    lines.append("> **识别逻辑**: 商誉占净资产比重奇高（>50%），前期高溢价并购标的暴雷将引发雪崩式减值亏损。")
     lines.append("")
     lines.append("| CIK | 公司名称 | 申报期 | 诊断结论 | 综合风险分 |")
     lines.append("| :---: | :--- | :---: | :--- | :---: |")
-    if notes_col in df_top_risks.columns:
-        gw_df = df_top_risks[df_top_risks[notes_col].astype(str).str.contains('商誉|减值', na=False)].head(5)
-        for _, r in gw_df.iterrows():
-            lines.append(f"| `{r.get('CIK', '')}` | **{r.get('公司名称', '')}** | `{r.get('最新申报期', '')}` | {r.get('排雷诊断结论', '')} | **{r.get('当前综合风险评分', '')}** 分 |")
+    
+    gw_found = False
+    if notes_col:
+        gw_df = df_top_risks[df_top_risks[notes_col].astype(str).str.contains('商誉|减值|洗澡', na=False)].head(5)
+        if not gw_df.empty:
+            for _, r in gw_df.iterrows():
+                lines.append(f"| `{r.get(cik_col, '')}` | **{r.get(name_col, '')}** | `{r.get(period_col, '')}` | {r.get(diag_col, '')} | **{r.get(score_col, '')}** 分 |")
+            gw_found = True
+    if not gw_found:
+        lines.append("| - | - | - | ✅ 市场未见巨额商誉减值危机企业 | - |")
     lines.append("")
 
     lines.append("---")

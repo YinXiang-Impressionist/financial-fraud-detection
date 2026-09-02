@@ -40,6 +40,8 @@ sec_parquet/
 *.log
 *.xlsx
 *.xls
+*_排雷总结研报.md
+*_体检简报.md
 ~$*
 AGENTS.md
 .agents/
