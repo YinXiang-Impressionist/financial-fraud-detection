@@ -211,8 +211,116 @@ def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选�
         print("=" * 70 + "\n")
 
 
+def run_interactive_menu():
+    """交互式询问菜单模式：免记繁琐参数，输入数字与提示即刻完成排雷"""
+    while True:
+        print("\n" + "=" * 72)
+        print("🌟 【SEC 美股财务数据分析与法务排雷平台 (交互式控制台)】")
+        print("=" * 72)
+        print("请选择您要执行的任务 (输入数字编号):")
+        print("  [1] 🎯 单票在线排雷审计 (输入股票代码，如 NVDA / TSLA / AAPL)")
+        print("  [2] 📋 自选股批量排雷体检 (输入多只股票，自动导出 Excel 诊断榜单)")
+        print("  [3] ⚡ 全美股最新财年大扫描 (秒级扫描数千家公司，自动调度湖仓)")
+        print("  [4] 📚 2020-2026 历年历史大排查 (全量 18 万份财报回溯)")
+        print("  [5] 📈 6 大法务会计量化因子全市场回测")
+        print("  [6] 🔍 检查本地 DuckDB 湖仓完整性与数据状态")
+        print("  [7] 📥 批量下载/补齐 SEC 官方历史数据 (已有文件自动跳过)")
+        print("  [8] ⚙️ 构建/刷新 DuckDB 湖仓 Parquet 视图")
+        print("  [0] 🚪 退出系统")
+        print("=" * 72)
+
+        try:
+            choice = input("👉 请输入选项编号 [0-8]: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\n\n👋 感谢使用，已安全退出系统。\n")
+            break
+
+        if choice in ['0', 'q', 'exit', 'quit']:
+            print("\n👋 感谢使用，已安全退出系统。\n")
+            break
+
+        t_op_start = time.time()
+
+        if choice == '1':
+            ticker = input("\n📝 请输入美股股票代码 (如 NVDA, AAPL, TSLA): ").strip()
+            if ticker:
+                audit_single_ticker_online(ticker)
+            else:
+                print("[-] 股票代码不能为空！")
+
+        elif choice == '2':
+            raw = input("\n📝 请输入逗号分隔的股票列表 (如 AAPL,NVDA,TSLA,MSFT): ").strip()
+            if raw:
+                tickers = [t.strip() for t in raw.replace('，', ',').split(',') if t.strip()]
+                audit_batch_tickers(tickers)
+            else:
+                print("[-] 股票列表不能为空！")
+
+        elif choice == '3':
+            if ensure_lakehouse_ready():
+                detector = USStockFraudDetector()
+                detector.scan_all_stocks()
+
+        elif choice == '4':
+            if ensure_lakehouse_ready():
+                detector = USStockFraudDetector()
+                detector.scan_all_stocks(all_years=True)
+
+        elif choice == '5':
+            if ensure_lakehouse_ready():
+                from backtest import ForensicFactorEngine, FactorBacktester
+                factor_engine = ForensicFactorEngine()
+                panel = factor_engine.build_factor_panel()
+                backtester = FactorBacktester(panel)
+                for f_col, f_name in [
+                    ("factor_cfo_quality", "1. 净现比与造血质量因子 (CFO/NetIncome)"),
+                    ("alpha_composite_forensic", "2. 综合法务会计复合质量 Alpha 因子"),
+                    ("factor_sloan_accrual", "3. Sloan 净应计利润异象因子"),
+                    ("factor_goodwill_safety", "4. 商誉安全排雷因子"),
+                    ("factor_cash_debt_spread", "5. 存贷双高异常排雷因子")
+                ]:
+                    backtester.run_backtest(factor_col=f_col, factor_name=f_name)
+
+        elif choice == '6':
+            ready, msg, count = check_lakehouse_ready("./sec_financials.duckdb")
+            print("\n" + "=" * 65)
+            print("🔍 【本地 SEC 数据湖仓完整性检查报告】")
+            print("=" * 65)
+            print(f"● 湖仓就绪状态: {'✅ 完整可用' if ready else '❌ 尚未就绪'}")
+            print(f"● 详细状态说明: {msg}")
+            if ready:
+                print(f"● 总财报申报数: {count:,} 份")
+            print("=" * 65 + "\n")
+
+        elif choice == '7':
+            start_y = input("📅 起始年份 [默认 2020]: ").strip() or "2020"
+            end_y = input("📅 结束年份 [默认 2026]: ").strip() or "2026"
+            downloader = SecDeraDownloader(start_year=int(start_y), end_year=int(end_y))
+            downloader.run()
+
+        elif choice == '8':
+            builder = SecToDuckDBPipeline()
+            builder.run()
+
+        else:
+            print("[-] 无效选项，请输入 0 到 8 之间的数字！")
+
+        print(f"⏱️ 【当前操作耗时】: {time.time() - t_op_start:.2f} 秒")
+        try:
+            input("\n⏎ 按 Enter 键返回主菜单...")
+        except (KeyboardInterrupt, EOFError):
+            print("\n👋 感谢使用，已安全退出系统。\n")
+            break
+
+
 def main():
     session_start = time.time()
+
+    # 若无参数传入，直接进入智能询问/菜单模式
+    if len(sys.argv) == 1:
+        run_interactive_menu()
+        return
+
     parser = argparse.ArgumentParser(description="SEC 美股财务数据分析与法务排雷一键式全功能主程序")
     
     # 在线实时审计参数
@@ -304,22 +412,6 @@ def main():
                 ]:
                     backtester.run_backtest(factor_col=f_col, factor_name=f_name)
             return
-
-        # 7. 默认无参提示与演示
-        print("\n" + "=" * 70)
-        print("🌟 【SEC 美股立体法务会计与财报排雷系统 (0 LLM 纯代码极速引擎)】")
-        print("=" * 70)
-        print("常用命令指南:")
-        print("  1. 在线单票多维审计:    python main.py --ticker NVDA")
-        print("  2. 在线批量股票池体检:   python main.py --batch 'AAPL,NVDA,TSLA,BABA'")
-        print("  3. 检查本地湖仓完整性:   python main.py --check-data")
-        print("  4. 下载/补齐全市场数据:  python main.py --download (已有数据自动跳过)")
-        print("  5. 本地湖仓全市场大扫描: python main.py --scan (自动检测数据，无数据自建)")
-        print("  6. 2020-2026全量大排查: python main.py --scan --all-years")
-        print("  7. 法务会计量化因子回测: python main.py --backtest")
-        print("=" * 70)
-        print("[*] 正在执行默认演示 (NVDA 在线多维立体法务排雷)...")
-        audit_single_ticker_online("NVDA")
 
     finally:
         total_session = time.time() - session_start

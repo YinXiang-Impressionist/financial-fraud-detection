@@ -90,7 +90,13 @@ cd sec_financial_lakehouse
 pip install -r requirements.txt
 ```
 
-### 2. 在线单票多维深度排雷 (即刻执行，无需本地大数据库)
+### 2. 交互式控制台模式 (最推荐：无需记忆任何繁琐参数)
+直接在终端运行 `python main.py`，系统将自动弹出交互式菜单，输入数字编号并按提示输入代码即可：
+```bash
+python main.py
+```
+
+### 3. 在线单票多维深度排雷 (命令行直连模式)
 秒级直连 SEC 官方，抓取最新连续两期财报、8-K 重大重述与内控审查，并运行纯数理模型打分：
 ```bash
 python main.py --ticker NVDA
