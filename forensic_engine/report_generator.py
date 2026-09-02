@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 法务会计排雷研报生成器 (Reader-Friendly Forensic Report Generator)
-为决策者与研究员生成结构化、排版优美、直观透彻的 Markdown 总结研报。
+针对 Notion / Obsidian / 现代文档软件深度优化排版，彻底消除 HTML 标签泄露与表格挤压。
 """
 
 import os
@@ -24,7 +24,7 @@ def generate_market_scan_summary_md(
     output_md_path: str
 ) -> str:
     """
-    生成美股全市场财务排雷大扫描的 Reader-Friendly 总结研报 (Markdown 格式)
+    生成美股全市场财务排雷大扫描的 Reader-Friendly 总结研报 (Notion 原生优雅排版)
     """
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     total_companies = len(df_full_company)
@@ -82,30 +82,60 @@ def generate_market_scan_summary_md(
     lines.append("## 🚨 2. 全美股风险最高 TOP 20 极危暴雷黑榜 (Top Distress Watchlist)")
     lines.append("以下公司在数理法务审计中命中多项排雷硬指标，存在系统性虚构收入、破产危机或大洗澡嫌疑：")
     lines.append("")
-    lines.append("| 排名 | CIK | 公司名称 | 最新申报期 | 风险分 | 风险等级 | 排雷诊断结论与全部核心实锤证据 (完整呈现) |")
+    
+    # 2.1 Notion 适配型简明总览看板 (表格内不堆叠复杂多行文本，保证绝不挤压变形)
+    lines.append("### 2.1 极危企业速览看板 (Executive Table)")
+    lines.append("")
+    lines.append("| 排名 | CIK | 公司名称 | 最新申报期 | 风险分 | 风险等级 | 核心排雷结论 |")
     lines.append("| :---: | :---: | :--- | :---: | :---: | :---: | :--- |")
 
     top20 = df_top_risks.head(20)
     for idx, (_, row) in enumerate(top20.iterrows(), 1):
-        cik = row.get(cik_col, '') if cik_col else ''
-        name = row.get(name_col, '') if name_col else ''
-        period = row.get(period_col, '') if period_col else ''
+        cik = str(row.get(cik_col, '')) if cik_col else ''
+        name = str(row.get(name_col, '')) if name_col else ''
+        period = str(row.get(period_col, '')) if period_col else ''
         score = row.get(score_col, 0) if score_col else 0
-        level = row.get(level_col, '') if level_col else ''
-        diag = row.get(diag_col, '') if diag_col else ''
-        raw_reasons = str(row.get(notes_col, '')) if notes_col else ''
+        level = str(row.get(level_col, '')) if level_col else ''
+        diag = str(row.get(diag_col, '')) if diag_col else ''
         
-        # 将各条排雷证据完整分行呈现，绝不中途文字生硬截断
-        if raw_reasons and raw_reasons != 'nan' and raw_reasons.strip():
-            reason_items = [p.strip() for p in raw_reasons.replace('\r', '').split('\n') if p.strip()]
-            reasons_html = "<br>".join(reason_items)
-            desc = f"**{diag}**<br>{reasons_html}"
-        else:
-            desc = f"**{diag}**"
-
-        lines.append(f"| {idx} | `{cik}` | **{name}** | `{period}` | **{score}** | {level} | {desc} |")
+        # 纯净短句，绝不含 <br>，完美适配 Notion 表格
+        lines.append(f"| {idx} | `{cik}` | **{name}** | `{period}` | **{score}** | {level} | {diag} |")
 
     lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # 2.2 Notion 原生级排版：TOP 20 独立诊断档案卡片 (结构化 Bullet Points，支持折叠与优雅展开)
+    lines.append("### 2.2 TOP 20 极危企业实锤深度档案 (Detailed Evidence Cards)")
+    lines.append("")
+
+    for idx, (_, row) in enumerate(top20.iterrows(), 1):
+        cik = str(row.get(cik_col, '')) if cik_col else ''
+        name = str(row.get(name_col, '')) if name_col else ''
+        period = str(row.get(period_col, '')) if period_col else ''
+        score = row.get(score_col, 0) if score_col else 0
+        level = str(row.get(level_col, '')) if level_col else ''
+        diag = str(row.get(diag_col, '')) if diag_col else ''
+        raw_reasons = str(row.get(notes_col, '')) if notes_col else ''
+
+        lines.append(f"#### {idx}. {name} (`CIK: {cik}`)")
+        lines.append(f"* **最新报告期**: `{period}` | **综合风险评分**: **{score} 分** ({level})")
+        lines.append(f"> **排雷核心结论**: {diag}")
+        lines.append("")
+        lines.append("**🔍 实锤证据与风险成因清单**:")
+
+        if raw_reasons and raw_reasons != 'nan' and raw_reasons.strip():
+            reason_items = [p.strip() for p in raw_reasons.replace('\r', '').split('\n') if p.strip()]
+            for item in reason_items:
+                clean_item = item.lstrip('0123456789. ').strip()
+                if clean_item.startswith('❌') or clean_item.startswith('✅'):
+                    lines.append(f"- {clean_item}")
+                else:
+                    lines.append(f"- ❌ {clean_item}")
+        else:
+            lines.append("- ✅ 财务勾稽严密，未见显著造假特征。")
+        lines.append("")
+
     lines.append("---")
     lines.append("")
     lines.append("## 💣 3. 四大核心舞弊手法集中爆发区 (Forensic Deep Dive)")
@@ -210,7 +240,7 @@ def generate_batch_summary_md(
     output_md_path: str
 ) -> str:
     """
-    生成自选股股票池批量体检的 Reader-Friendly 总结研报 (Markdown 格式)
+    生成自选股股票池批量体检的 Reader-Friendly 总结研报 (Notion 原生优雅排版)
     """
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     sorted_results = sorted(results, key=lambda x: x.get('综合风险评分', 0), reverse=True)
@@ -261,17 +291,18 @@ def generate_batch_summary_md(
         lines.append(f"### 2.{idx} {name} (`{ticker}`)")
         lines.append(f"* **综合评分**: **{score} 分** ({level})")
         lines.append(f"* **诊断结论**: **{diag}**")
-        
-        lines.append("* **详细排雷证据与成因说明 (Notes)**:")
+        lines.append("")
+        lines.append("**详细排雷证据与成因说明 (Notes)**:")
         if notes and notes != 'nan' and notes.strip():
             items = [p.strip() for p in notes.replace(';', '\n').split('\n') if p.strip()]
             for p_clean in items:
-                if p_clean.startswith('✅'):
-                    lines.append(f"  - {p_clean}")
+                clean_text = p_clean.lstrip('0123456789. ').strip()
+                if clean_text.startswith('✅') or clean_text.startswith('❌'):
+                    lines.append(f"- {clean_text}")
                 else:
-                    lines.append(f"  - ❌ {p_clean}")
+                    lines.append(f"- ❌ {clean_text}")
         else:
-            lines.append("  - ✅ 财务勾稽严密，各项计量模型均处于安全区间，未见明显财务粉饰迹象。")
+            lines.append("- ✅ 财务勾稽严密，各项计量模型均处于安全区间，未见明显财务粉饰迹象。")
         lines.append("")
 
     lines.append("---")
