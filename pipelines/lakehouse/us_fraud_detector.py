@@ -183,14 +183,22 @@ class USStockFraudDetector:
         t0 = time.time()
         con = duckdb.connect(self.db_path, read_only=True)
 
-        form_filter = f"AND form = '{form}'" if form and form.lower() != 'all' else "AND form IN ('10-K', '10-Q')"
-        fy_filter = f"AND fy = '{fy}'" if fy and fy.lower() != 'all' else ""
+        form_filter = f"AND s.form = '{form}'" if form and form.lower() != 'all' else "AND s.form IN ('10-K', '10-Q')"
+        
+        if fy and fy.lower() != 'all':
+            fy_filter = f"AND s.fy = '{fy}'"
+        elif all_years:
+            # 跨 10 年完整数据全景排查：严格限定 2016-2026，坚决过滤 2004 等历史迟交补报噪点
+            fy_filter = "AND try_cast(substr(cast(s.period as varchar), 1, 4) as int) >= 2016"
+        else:
+            # 最新财年扫描模式：只扫描最近 3 年有真实披露的活跃上市公司，坚决过滤历史退市僵尸公司
+            fy_filter = "AND try_cast(substr(cast(s.period as varchar), 1, 4) as int) >= 2022"
 
-        if all_years or fy.lower() == 'all':
+        if all_years or (fy and fy.lower() == 'all'):
             query = f"""
                 WITH target_sub AS (
                     SELECT cik, name, adsh, form, period, fy, fp
-                    FROM sub
+                    FROM sub s
                     WHERE 1=1 {form_filter} {fy_filter}
                 )
                 SELECT 
@@ -223,7 +231,7 @@ class USStockFraudDetector:
                 WITH latest_filings AS (
                     SELECT cik, name, adsh, form, period, fy, fp,
                            ROW_NUMBER() OVER (PARTITION BY cik ORDER BY period DESC) as rn
-                    FROM sub
+                    FROM sub s
                     WHERE 1=1 {form_filter} {fy_filter}
                 ),
                 target_sub AS (
