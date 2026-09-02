@@ -1,16 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-SEC 美股财务数据分析与法务排雷一键式主程序 (All-in-One US Stock Platform)
-承担全生命周期完整任务 (全自动数据获取、断点续传、按需智能跳过、在线/离线双模排雷、量化回测)：
+SEC 美股财务数据分析与法务排雷一键式主平台 (All-in-One US Stock Forensic Platform)
+承担全生命周期完整任务 (交互式控制台、智能跳过、在线/离线双模排雷、公司主键Excel架构、量化回测)：
 
-1. 在线秒级审计:
+1. 智能交互式控制台 (最推荐：免记任何繁琐参数):
+   - python main.py (弹出交互菜单，输入数字编号即可执行所有功能)
+
+2. 在线秒级审计 (命令行静默调用):
    - 单票多维法务体检: python main.py --ticker NVDA
    - 自选股池批量体检: python main.py --batch "AAPL,NVDA,TSLA,BABA"
-2. 完整数据生命周期管理 (智能跳过已存在数据):
+
+3. 本地数据生命周期管理 (智能跳过已存在数据):
    - 检查本地湖仓完整性: python main.py --check-data
    - 一键下载缺失数据包: python main.py --download (已下载文件自动跳过，断点续传)
    - 一键构建 DuckDB 湖仓: python main.py --build (已转换 Parquet 自动跳过)
-3. 全市场离线排雷与量化研究 (自动检测本地数据，若已有完整数据直接使用，若缺失自动触发整备):
+
+4. 全市场离线排雷与量化研究 (以公司为主键导出三级工作簿):
    - 全美股最新财年扫描: python main.py --scan
    - 2020-2026 历年大排查: python main.py --scan --all-years
    - 6 大法务因子回测:   python main.py --backtest
