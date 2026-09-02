@@ -1,5 +1,5 @@
-# SEC Financial Lakehouse & Forensic Accounting Alpha Engine 🚀
-### 全美股财务数据湖仓、数理法务排雷审计与量化 Alpha 回测系统
+# SEC Financial Lakehouse & Forensic Fraud Detection Engine 🚀
+### 全美股财务数据湖仓与数理法务排雷审计系统
 
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![edgar-tools](https://img.shields.io/badge/edgar--tools-5.55%2B-orange.svg)](https://github.com/edgarminers/edgatools)
@@ -30,16 +30,12 @@ An ultra-fast, local financial data lakehouse and quantitative forensic accounti
 
 ### 2. 双轨制 8-K 重述 (Item 4.02) 机制
 * **实盘排雷（时效衰减）**：1 年内刚重述扣 **+20分**（连环暴雷敏感期）；1~3 年扣 **+5分**（整改观察期）；超过 3 年历史问题已出清，**0 分（不扣分、不误杀）**；
-* **学术科研（黄金真值）**：无论何时重述，均永久标记 `target_is_restated_fraud = True`，专供多空回测与机器学习模型作为 100% 确凿的 Ground Truth 训练样本。
+* **学术科研（黄金真值）**：无论何时重述，均永久标记 `target_is_restated_fraud = True`，专供多空排雷与机器学习模型作为 100% 确凿的 Ground Truth 训练样本。
 
 ### 3. 全自动化数据生命周期管理 (`main.py`)
-* `main.py` 统管单票、批量、全市场扫描、回测与下载构建全流程；
+* `main.py` 统管单票、批量、全市场扫描、数据管理与下载构建全流程；
 * **智能跳过（Smart Skip）**：若本地已存在完整 DuckDB 湖仓，秒级直接使用，**不产生任何多余网络开销与下载**；
 * **断点续传（Breakpoint Resume）**：每个季度 zip 文件独立校验，已下载完好的季度自动秒级跳过（3000+ 季度/秒），仅下载缺失部分。
-
-### 4. 量化法务会计 Alpha 因子实证回测
-* 提供现金流造血质量、Sloan 应计异象、商誉安全排雷等 WorldQuant BRAIN 风格因子；
-* 全美股回测实证：**净现比造血因子 Rank IC 高达 +0.3840 (IC IR = 9.94)**，Q1 造假高危组次年资产回报率平均暴跌 **-18.42%**。
 
 ---
 
@@ -68,9 +64,6 @@ sec_financial_lakehouse/
 │       ├── sec_to_duckdb.py           # DuckDB 湖仓建表与 Parquet 转换
 │       ├── query_sec.py               # 湖仓本地 SQL 检索
 │       └── us_fraud_detector.py       # 湖仓批量向量化排雷
-│
-├── backtest/                          # 📈 [量化研究] Alpha 因子回测引擎
-│   └── quant_fraud_backtest.py        # 6 大法务会计因子多空绩效回测
 │
 ├── tests/                             # 🧪 [测试套件] 自动化测试与性能基准压测
 │   ├── test_forensic_engine.py        # 核心算法与 10,000 条报表向量化性能压测 (28万份/秒)
@@ -151,12 +144,7 @@ python main.py --scan
 python main.py --scan --all-years
 ```
 
-### 7. 法务会计量化 Alpha 因子全市场回测
-```bash
-python main.py --backtest
-```
-
-### 8. 运行自动化测试套件
+### 7. 运行自动化测试套件
 ```bash
 # 验证核心算法精度与 10,000 份报表向量化基准压测
 python tests/test_forensic_engine.py

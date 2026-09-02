@@ -15,10 +15,9 @@ SEC 美股财务数据分析与法务排雷一键式主平台 (All-in-One US Sto
    - 一键下载缺失数据包: python main.py --download (已下载文件自动跳过，断点续传)
    - 一键构建 DuckDB 湖仓: python main.py --build (已转换 Parquet 自动跳过)
 
-4. 全市场离线排雷与量化研究 (以公司为主键导出三级工作簿):
+4. 全市场离线排雷大扫描 (以公司为主键导出三级工作簿):
    - 全美股最新财年扫描: python main.py --scan
    - 历年大排查 (跨10年完整数据): python main.py --scan --all-years
-   - 6 大法务因子回测:   python main.py --backtest
 """
 
 import os
@@ -286,15 +285,14 @@ def run_interactive_menu():
         print("  [2] 📋 自选股批量排雷体检 (输入多只股票，自动导出 Excel 诊断榜单)")
         print("  [3] ⚡ 全美股最新财年大扫描 (秒级扫描数千家公司，自动调度湖仓)")
         print(f"  [4] 📚 {TEN_YEARS_SPAN_DESC} 历年历史大排查 (跨 10 年完整数据全量回溯)")
-        print("  [5] 📈 6 大法务会计量化因子全市场回测")
-        print("  [6] 🔍 检查本地 DuckDB 湖仓完整性与数据状态")
-        print("  [7] 📥 批量下载/补齐 SEC 官方历史数据 (已有文件自动跳过)")
-        print("  [8] ⚙️ 构建/刷新 DuckDB 湖仓 Parquet 视图")
+        print("  [5] 🔍 检查本地 DuckDB 湖仓完整性与数据状态")
+        print("  [6] 📥 批量下载/补齐 SEC 官方历史数据 (已有文件自动跳过)")
+        print("  [7] ⚙️ 构建/刷新 DuckDB 湖仓 Parquet 视图")
         print("  [0] 🚪 退出系统")
         print("=" * 72)
 
         try:
-            choice = input("👉 请输入选项编号 [0-8]: ").strip()
+            choice = input("👉 请输入选项编号 [0-7]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n\n👋 感谢使用，已安全退出系统。\n")
             break
@@ -349,21 +347,6 @@ def run_interactive_menu():
             detector.scan_all_stocks(all_years=True)
 
         elif choice == '5':
-            if ensure_lakehouse_ready():
-                from backtest import ForensicFactorEngine, FactorBacktester
-                factor_engine = ForensicFactorEngine(db_path=DEFAULT_DB_PATH)
-                panel = factor_engine.build_factor_panel()
-                backtester = FactorBacktester(panel)
-                for f_col, f_name in [
-                    ("factor_cfo_quality", "1. 净现比与造血质量因子 (CFO/NetIncome)"),
-                    ("alpha_composite_forensic", "2. 综合法务会计复合质量 Alpha 因子"),
-                    ("factor_sloan_accrual", "3. Sloan 净应计利润异象因子"),
-                    ("factor_goodwill_safety", "4. 商誉安全排雷因子"),
-                    ("factor_cash_debt_spread", "5. 存贷双高异常排雷因子")
-                ]:
-                    backtester.run_backtest(factor_col=f_col, factor_name=f_name)
-
-        elif choice == '6':
             ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready(DEFAULT_DB_PATH)
             print("\n" + "=" * 65)
             print("🔍 【本地 SEC 数据湖仓完整性检查报告】")
@@ -375,18 +358,18 @@ def run_interactive_menu():
                 print(f"● 总财报申报数: {count:,} 份")
             print("=" * 65 + "\n")
 
-        elif choice == '7':
+        elif choice == '6':
             start_y = input(f"📅 起始年份 [默认 {DEFAULT_START_YEAR} (跨10年)]: ").strip() or str(DEFAULT_START_YEAR)
             end_y = input(f"📅 结束年份 [默认 {CURRENT_YEAR}]: ").strip() or str(CURRENT_YEAR)
             downloader = SecDeraDownloader(download_dir=DEFAULT_ZIPS_DIR, start_year=int(start_y), end_year=int(end_y))
             downloader.run()
 
-        elif choice == '8':
+        elif choice == '7':
             builder = SecToDuckDBPipeline(zips_dir=DEFAULT_ZIPS_DIR, parquet_dir=DEFAULT_PARQUET_DIR, db_path=DEFAULT_DB_PATH)
             builder.run()
 
         else:
-            print("[-] 无效选项，请输入 0 到 8 之间的数字！")
+            print("[-] 无效选项，请输入 0 到 7 之间的数字！")
 
         print(f"⏱️ 【当前操作耗时】: {time.time() - t_op_start:.2f} 秒")
         try:
@@ -419,11 +402,10 @@ def main():
     parser.add_argument("--start-year", type=int, default=DEFAULT_START_YEAR, help=f"下载与构建的起始年份 (默认 {DEFAULT_START_YEAR} 跨10年完整数据)")
     parser.add_argument("--end-year", type=int, default=CURRENT_YEAR, help=f"下载与构建的结束年份 (默认 {CURRENT_YEAR})")
     
-    # 离线批量扫描与量化因子回测参数
+    # 离线批量扫描参数
     parser.add_argument("--db", type=str, default=DEFAULT_DB_PATH, help="DuckDB 数据库路径")
     parser.add_argument("--scan", action="store_true", help="全量扫描美股数万家上市公司的造假风险 (自动检测本地数据)")
     parser.add_argument("--all-years", action="store_true", help=f"全量扫描 {TEN_YEARS_SPAN_DESC} 跨 10 年全部历史申报记录")
-    parser.add_argument("--backtest", action="store_true", help="运行 6 大法务会计量化因子全市场回测 (自动检测本地数据)")
     parser.add_argument("--fy", type=str, default="", help="指定目标财年过滤，如: 2025")
     parser.add_argument("--output", type=str, default="", help="导出报告路径 (默认根据公司、年份及时间智能动态命名)")
     
@@ -468,8 +450,8 @@ def main():
             builder.run()
             return
 
-        # 6. 本地全市场大扫描或因子回测 (全自动保证数据可用，已有数据免下载)
-        if args.scan or args.all_years or args.backtest:
+        # 6. 本地全市场大扫描 (全自动保证数据可用，已有数据免下载)
+        if args.scan or args.all_years:
             if not ensure_lakehouse_ready(
                 db_path=args.db,
                 zips_dir=args.zips_dir,
@@ -480,22 +462,8 @@ def main():
             ):
                 return
 
-            if args.scan or args.all_years:
-                detector = USStockFraudDetector(db_path=args.db, output_report=args.output)
-                detector.scan_all_stocks(fy=args.fy, all_years=args.all_years, output_report=args.output)
-            elif args.backtest:
-                from backtest import ForensicFactorEngine, FactorBacktester
-                factor_engine = ForensicFactorEngine(db_path=args.db)
-                panel = factor_engine.build_factor_panel()
-                backtester = FactorBacktester(panel)
-                for f_col, f_name in [
-                    ("factor_cfo_quality", "1. 净现比与造血质量因子 (CFO/NetIncome)"),
-                    ("alpha_composite_forensic", "2. 综合法务会计复合质量 Alpha 因子"),
-                    ("factor_sloan_accrual", "3. Sloan 净应计利润异象因子"),
-                    ("factor_goodwill_safety", "4. 商誉安全排雷因子"),
-                    ("factor_cash_debt_spread", "5. 存贷双高异常排雷因子")
-                ]:
-                    backtester.run_backtest(factor_col=f_col, factor_name=f_name)
+            detector = USStockFraudDetector(db_path=args.db, output_report=args.output)
+            detector.scan_all_stocks(fy=args.fy, all_years=args.all_years, output_report=args.output)
             return
 
     finally:
