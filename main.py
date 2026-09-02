@@ -17,7 +17,7 @@ SEC 美股财务数据分析与法务排雷一键式主平台 (All-in-One US Sto
 
 4. 全市场离线排雷与量化研究 (以公司为主键导出三级工作簿):
    - 全美股最新财年扫描: python main.py --scan
-   - 2016-2026 历年大排查 (跨10年完整数据): python main.py --scan --all-years
+   - 历年大排查 (跨10年完整数据): python main.py --scan --all-years
    - 6 大法务因子回测:   python main.py --backtest
 """
 
@@ -36,6 +36,18 @@ if sys.platform.startswith('win'):
     except Exception:
         pass
 
+# 项目绝对根目录锚定 (消除外部目录执行时的相对路径漂移)
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "sec_financials.duckdb")
+DEFAULT_ZIPS_DIR = os.path.join(PROJECT_ROOT, "sec_zips")
+DEFAULT_PARQUET_DIR = os.path.join(PROJECT_ROOT, "sec_parquet")
+
+# 动态自然时间推导 (终结年份硬编码)
+_NOW = datetime.now()
+CURRENT_YEAR = _NOW.year
+DEFAULT_START_YEAR = CURRENT_YEAR - 10
+TEN_YEARS_SPAN_DESC = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR}"
+
 from pipelines import EdgarPipeline
 from forensic_engine import ForensicEvaluator
 from pipelines.lakehouse import (
@@ -47,16 +59,17 @@ from pipelines.lakehouse import (
 )
 
 
-def check_lakehouse_ready(db_path: str, require_all_years: bool = False) -> tuple:
+def check_lakehouse_ready(db_path: str = "", require_all_years: bool = False) -> tuple:
     """
     检查本地 DuckDB 湖仓完整性与时间覆盖范围
     返回: (is_ready: bool, status_message: str, row_count: int, min_year: int, max_year: int, year_count: int)
     """
-    if not os.path.exists(db_path):
-        return False, "未找到数据库文件", 0, 0, 0, 0
+    target_db = db_path if db_path else DEFAULT_DB_PATH
+    if not os.path.exists(target_db):
+        return False, f"未找到数据库文件 ({os.path.basename(target_db)})", 0, 0, 0, 0
     try:
         import duckdb
-        con = duckdb.connect(db_path, read_only=True)
+        con = duckdb.connect(target_db, read_only=True)
         tables = [t[0] for t in con.execute("SHOW TABLES").fetchall()]
         if 'sub' not in tables or 'num' not in tables:
             con.close()
@@ -81,12 +94,12 @@ def check_lakehouse_ready(db_path: str, require_all_years: bool = False) -> tupl
         con.close()
         if row and row[0] > 0:
             total_count = row[0]
-            min_y = max(row[1] or 2016, 2016)
-            max_y = row[2] or 2026
+            min_y = max(row[1] or DEFAULT_START_YEAR, DEFAULT_START_YEAR)
+            max_y = row[2] or CURRENT_YEAR
             y_cnt = row[3] or 1
 
-            if require_all_years and (min_y > 2017 or y_cnt < 8):
-                return False, f"本地仅包含 {min_y} 年数据 (共 {y_cnt} 个年份，缺失 2016-2025 跨10年历史年度数据包)", total_count, min_y, max_y, y_cnt
+            if require_all_years and (min_y > DEFAULT_START_YEAR + 1 or y_cnt < 8):
+                return False, f"本地仅包含 {min_y} 年数据 (共 {y_cnt} 个年份，缺失 {TEN_YEARS_SPAN_DESC} 跨10年历史年度数据包)", total_count, min_y, max_y, y_cnt
 
             return True, f"数据完整 (覆盖 {min_y}-{max_y} 跨10年完整数据，共 {total_count:,} 份财报申报记录)", total_count, min_y, max_y, y_cnt
         return False, "数据库记录数为空", 0, 0, 0, 0
@@ -95,38 +108,51 @@ def check_lakehouse_ready(db_path: str, require_all_years: bool = False) -> tupl
 
 
 def ensure_lakehouse_ready(
-    db_path: str = "./sec_financials.duckdb",
-    zips_dir: str = "./sec_zips",
-    parquet_dir: str = "./sec_parquet",
-    start_year: int = 2016,
-    end_year: int = 2026,
+    db_path: str = "",
+    zips_dir: str = "",
+    parquet_dir: str = "",
+    start_year: int = DEFAULT_START_YEAR,
+    end_year: int = CURRENT_YEAR,
     force_download: bool = False,
     require_all_years: bool = False
 ) -> bool:
     """
     全自动保证本地湖仓可用：
     1. 若已有完整数据，智能跳过下载与构建，秒级直接使用；
-    2. 若缺失数据或缺少历史年度，自动启动断点续传下载与 Parquet 湖仓构建。
+    2. 若缺失数据或缺少历史年度，向用户给出透明容量提示并自动启动断点续传下载与 Parquet 湖仓构建。
     """
-    ready, msg, _, min_y, max_y, _ = check_lakehouse_ready(db_path, require_all_years=require_all_years)
+    target_db = db_path if db_path else DEFAULT_DB_PATH
+    target_zips = zips_dir if zips_dir else DEFAULT_ZIPS_DIR
+    target_parquet = parquet_dir if parquet_dir else DEFAULT_PARQUET_DIR
+
+    ready, msg, _, min_y, max_y, _ = check_lakehouse_ready(target_db, require_all_years=require_all_years)
     if ready and not force_download:
         print(f"[+] 湖仓就绪检查通过: {msg}")
         print("[+] 检测到本地已存在所需数据，自动跳过下载与构建，直接执行分析任务！\n")
         return True
 
+    # 新用户首次开箱冷启动提示
+    if not os.path.exists(target_db) and not os.path.exists(target_zips):
+        print("\n" + "=" * 70)
+        print("💡 【首次运行 SEC 本地湖仓初始化提示】")
+        print(f"● 检测到当前环境为首次运行，本地尚未构建离线 SEC 财务湖仓。")
+        print(f"● 全美股全量历史大排查约需从 SEC 官方下载 {start_year}-{end_year} 历史数据包 (约 1.4GB 压缩包)。")
+        print(f"● 系统支持全自动断点续传与极速 Parquet 分区转换，单次构建后永久秒级本地复用。")
+        print("=" * 70)
+
     print(f"\n[*] 检查本地数据状态: {msg}")
     print(f"[*] 正在为您全自动整备 {start_year}-{end_year} 历史数据 (已有季度文件自动跳过，无需重复下载)...")
 
     # 1. 检查并下载 SEC DERA 原始数据包
-    downloader = SecDeraDownloader(download_dir=zips_dir, start_year=start_year, end_year=end_year)
+    downloader = SecDeraDownloader(download_dir=target_zips, start_year=start_year, end_year=end_year)
     downloader.run()
 
     # 2. 转换为 ZSTD Parquet 并挂载 DuckDB 视图
-    builder = SecToDuckDBPipeline(zips_dir=zips_dir, parquet_dir=parquet_dir, db_path=db_path)
+    builder = SecToDuckDBPipeline(zips_dir=target_zips, parquet_dir=target_parquet, db_path=target_db)
     builder.run()
 
     # 最终验证
-    ready_after, msg_after, _, _, _, _ = check_lakehouse_ready(db_path, require_all_years=require_all_years)
+    ready_after, msg_after, _, _, _, _ = check_lakehouse_ready(target_db, require_all_years=require_all_years)
     if ready_after:
         print(f"\n🎉 本地湖仓全自动整备完毕: {msg_after}\n")
         return True
@@ -259,7 +285,7 @@ def run_interactive_menu():
         print("  [1] 🎯 单票在线排雷审计 (输入股票代码，如 NVDA / TSLA / AAPL)")
         print("  [2] 📋 自选股批量排雷体检 (输入多只股票，自动导出 Excel 诊断榜单)")
         print("  [3] ⚡ 全美股最新财年大扫描 (秒级扫描数千家公司，自动调度湖仓)")
-        print("  [4] 📚 2016-2026 历年历史大排查 (跨 10 年完整数据全量回溯)")
+        print(f"  [4] 📚 {TEN_YEARS_SPAN_DESC} 历年历史大排查 (跨 10 年完整数据全量回溯)")
         print("  [5] 📈 6 大法务会计量化因子全市场回测")
         print("  [6] 🔍 检查本地 DuckDB 湖仓完整性与数据状态")
         print("  [7] 📥 批量下载/补齐 SEC 官方历史数据 (已有文件自动跳过)")
@@ -296,36 +322,36 @@ def run_interactive_menu():
 
         elif choice == '3':
             if ensure_lakehouse_ready():
-                detector = USStockFraudDetector()
+                detector = USStockFraudDetector(db_path=DEFAULT_DB_PATH)
                 detector.scan_all_stocks()
 
         elif choice == '4':
-            ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready("./sec_financials.duckdb", require_all_years=True)
-            if not ready and min_y > 2017:
+            ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready(DEFAULT_DB_PATH, require_all_years=True)
+            if not ready and min_y > DEFAULT_START_YEAR + 1:
                 print("\n" + "=" * 70)
                 print("⚠️ 【历史年度数据完整性提醒】")
                 print("=" * 70)
                 print(f"● 当前状态: {msg}")
-                print(f"● 提示: 您选择了 [2016-2026 历年历史大排查 (跨10年完整数据)]，但本地目前仅包含 {min_y} 年起的申报记录。")
-                print(f"● 若要真正实现 2016-2026 跨 10 年全量历史回溯，需要从 SEC 下载 2016-2025 的历史数据包。")
+                print(f"● 提示: 您选择了 [{TEN_YEARS_SPAN_DESC} 历年历史大排查 (跨10年完整数据)]，但本地目前仅包含 {min_y} 年起的申报记录。")
+                print(f"● 若要真正实现 {TEN_YEARS_SPAN_DESC} 跨 10 年全量历史回溯，需要从 SEC 下载 {DEFAULT_START_YEAR}-{CURRENT_YEAR-1} 的历史数据包。")
                 print("=" * 70)
-                ans = input("👉 是否立即自动下载并补齐 2016-2025 历史数据包？(输入 y 下载，输入 n 直接基于现有数据排查) [y/N]: ").strip().lower()
+                ans = input(f"👉 是否立即自动下载并补齐 {DEFAULT_START_YEAR}-{CURRENT_YEAR-1} 历史数据包？(输入 y 下载，输入 n 直接基于现有数据排查) [y/N]: ").strip().lower()
                 if ans in ['y', 'yes']:
-                    if not ensure_lakehouse_ready(start_year=2016, end_year=2026, force_download=True, require_all_years=True):
+                    if not ensure_lakehouse_ready(start_year=DEFAULT_START_YEAR, end_year=CURRENT_YEAR, force_download=True, require_all_years=True):
                         continue
                 else:
                     print(f"[*] 继续基于本地现有数据 ({min_y}年) 执行历年排查任务...\n")
             elif not ready:
-                if not ensure_lakehouse_ready(start_year=2016, end_year=2026, require_all_years=True):
+                if not ensure_lakehouse_ready(start_year=DEFAULT_START_YEAR, end_year=CURRENT_YEAR, require_all_years=True):
                     continue
 
-            detector = USStockFraudDetector()
+            detector = USStockFraudDetector(db_path=DEFAULT_DB_PATH)
             detector.scan_all_stocks(all_years=True)
 
         elif choice == '5':
             if ensure_lakehouse_ready():
                 from backtest import ForensicFactorEngine, FactorBacktester
-                factor_engine = ForensicFactorEngine()
+                factor_engine = ForensicFactorEngine(db_path=DEFAULT_DB_PATH)
                 panel = factor_engine.build_factor_panel()
                 backtester = FactorBacktester(panel)
                 for f_col, f_name in [
@@ -338,7 +364,7 @@ def run_interactive_menu():
                     backtester.run_backtest(factor_col=f_col, factor_name=f_name)
 
         elif choice == '6':
-            ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready("./sec_financials.duckdb")
+            ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready(DEFAULT_DB_PATH)
             print("\n" + "=" * 65)
             print("🔍 【本地 SEC 数据湖仓完整性检查报告】")
             print("=" * 65)
@@ -350,13 +376,13 @@ def run_interactive_menu():
             print("=" * 65 + "\n")
 
         elif choice == '7':
-            start_y = input("📅 起始年份 [默认 2016 (跨10年)]: ").strip() or "2016"
-            end_y = input("📅 结束年份 [默认 2026]: ").strip() or "2026"
-            downloader = SecDeraDownloader(start_year=int(start_y), end_year=int(end_y))
+            start_y = input(f"📅 起始年份 [默认 {DEFAULT_START_YEAR} (跨10年)]: ").strip() or str(DEFAULT_START_YEAR)
+            end_y = input(f"📅 结束年份 [默认 {CURRENT_YEAR}]: ").strip() or str(CURRENT_YEAR)
+            downloader = SecDeraDownloader(download_dir=DEFAULT_ZIPS_DIR, start_year=int(start_y), end_year=int(end_y))
             downloader.run()
 
         elif choice == '8':
-            builder = SecToDuckDBPipeline()
+            builder = SecToDuckDBPipeline(zips_dir=DEFAULT_ZIPS_DIR, parquet_dir=DEFAULT_PARQUET_DIR, db_path=DEFAULT_DB_PATH)
             builder.run()
 
         else:
@@ -388,15 +414,15 @@ def main():
     parser.add_argument("--check-data", action="store_true", help="检查本地 DuckDB 湖仓的数据完整性与状态")
     parser.add_argument("--download", action="store_true", help="批量下载/补齐 SEC DERA 历史报表数据 (已存在的文件自动跳过)")
     parser.add_argument("--build", action="store_true", help="将已下载的 zip 转换为 Parquet 并构建 DuckDB 湖仓视图")
-    parser.add_argument("--zips-dir", type=str, default="./sec_zips", help="原始 zip 数据集存放目录")
-    parser.add_argument("--parquet-dir", type=str, default="./sec_parquet", help="Parquet 湖仓存储目录")
-    parser.add_argument("--start-year", type=int, default=2016, help="下载与构建的起始年份 (默认 2016 跨10年完整数据)")
-    parser.add_argument("--end-year", type=int, default=2026, help="下载与构建的结束年份 (默认 2026)")
+    parser.add_argument("--zips-dir", type=str, default=DEFAULT_ZIPS_DIR, help="原始 zip 数据集存放目录")
+    parser.add_argument("--parquet-dir", type=str, default=DEFAULT_PARQUET_DIR, help="Parquet 湖仓存储目录")
+    parser.add_argument("--start-year", type=int, default=DEFAULT_START_YEAR, help=f"下载与构建的起始年份 (默认 {DEFAULT_START_YEAR} 跨10年完整数据)")
+    parser.add_argument("--end-year", type=int, default=CURRENT_YEAR, help=f"下载与构建的结束年份 (默认 {CURRENT_YEAR})")
     
     # 离线批量扫描与量化因子回测参数
-    parser.add_argument("--db", type=str, default="./sec_financials.duckdb", help="DuckDB 数据库路径")
+    parser.add_argument("--db", type=str, default=DEFAULT_DB_PATH, help="DuckDB 数据库路径")
     parser.add_argument("--scan", action="store_true", help="全量扫描美股数万家上市公司的造假风险 (自动检测本地数据)")
-    parser.add_argument("--all-years", action="store_true", help="全量扫描 2016-2026 跨 10 年全部历史申报记录")
+    parser.add_argument("--all-years", action="store_true", help=f"全量扫描 {TEN_YEARS_SPAN_DESC} 跨 10 年全部历史申报记录")
     parser.add_argument("--backtest", action="store_true", help="运行 6 大法务会计量化因子全市场回测 (自动检测本地数据)")
     parser.add_argument("--fy", type=str, default="", help="指定目标财年过滤，如: 2025")
     parser.add_argument("--output", type=str, default="", help="导出报告路径 (默认根据公司、年份及时间智能动态命名)")

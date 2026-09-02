@@ -17,6 +17,17 @@ import argparse
 import duckdb
 import pandas as pd
 import numpy as np
+from datetime import datetime
+
+# 项目绝对根目录锚定
+_BACKTEST_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(_BACKTEST_DIR)
+DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "sec_financials.duckdb")
+
+# 动态自然时间推导
+_NOW = datetime.now()
+CURRENT_YEAR = _NOW.year
+DEFAULT_START_YEAR = CURRENT_YEAR - 10
 
 # 保证 Windows 控制台 UTF-8 输出
 if sys.platform.startswith('win'):
@@ -27,8 +38,9 @@ if sys.platform.startswith('win'):
 
 
 class ForensicFactorEngine:
-    def __init__(self, db_path: str = "./sec_financials.duckdb"):
-        self.db_path = os.path.abspath(db_path)
+    """法务会计量化因子计算与特征工程引擎"""
+    def __init__(self, db_path: str = ""):
+        self.db_path = os.path.abspath(db_path) if db_path else DEFAULT_DB_PATH
         if not os.path.exists(self.db_path):
             raise FileNotFoundError(f"未找到数据库文件: {self.db_path}，请先运行 sec_to_duckdb.py")
 
@@ -38,8 +50,8 @@ class ForensicFactorEngine:
         t0 = time.time()
         con = duckdb.connect(self.db_path, read_only=True)
 
-        # 提取 2016-2026 历年 10-K 年报数据 (跨10年完整面板)
-        sql = """
+        # 动态提取跨 10 年历年 10-K 年报面板数据
+        sql = f"""
             WITH raw_panel AS (
                 SELECT 
                     s.cik, s.name, s.period, s.fy, s.quarter,
@@ -59,7 +71,7 @@ class ForensicFactorEngine:
                     MAX(CASE WHEN n.tag IN ('LongTermDebtNoncurrent', 'LongTermDebt', 'ShortTermBorrowings') THEN n.value END) AS debt
                 FROM sub s
                 JOIN num n ON s.adsh = n.adsh
-                WHERE s.form = '10-K' AND s.fy >= '2016' AND s.fy <= '2026'
+                WHERE s.form = '10-K' AND s.fy >= '{DEFAULT_START_YEAR}' AND s.fy <= '{CURRENT_YEAR}'
                 GROUP BY s.cik, s.name, s.period, s.fy, s.quarter
             )
             SELECT * FROM raw_panel
@@ -218,8 +230,8 @@ class FactorBacktester:
 
 def main():
     parser = argparse.ArgumentParser(description="法务会计与财报排雷量化因子库与回测系统")
-    parser.add_argument("--db", type=str, default="./sec_financials.duckdb", help="SEC DuckDB 数据库路径")
-    parser.add_argument("--export", type=str, default="./法务会计量化因子回测绩效报告.xlsx", help="回测报告导出路径")
+    parser.add_argument("--db", type=str, default=DEFAULT_DB_PATH, help="SEC DuckDB 数据库路径")
+    parser.add_argument("--export", type=str, default=os.path.join(PROJECT_ROOT, "法务会计量化因子回测绩效报告.xlsx"), help="回测报告导出路径")
     args = parser.parse_args()
 
     engine = ForensicFactorEngine(db_path=args.db)

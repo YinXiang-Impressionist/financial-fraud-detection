@@ -83,34 +83,44 @@ sec_financial_lakehouse/
 
 ## 🛠️ 快速开始 (Quick Start)
 
-### 1. 安装依赖环境
+### 1. 环境准备与依赖安装
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/your-repo/sec_financial_lakehouse.git
 cd sec_financial_lakehouse
 pip install -r requirements.txt
 ```
 
-### 2. 交互式控制台模式 (最推荐：无需记忆任何繁琐参数)
-直接在终端运行 `python main.py`，系统将自动弹出交互式菜单，输入数字编号并按提示输入代码即可：
-```bash
-python main.py
-```
+> [!TIP]
+> **SEC 合规 User-Agent 设置（推荐）**：
+> SEC EDGAR 官方政策要求数据访问者提供合法名称与联系邮箱。系统已内置合规默认标识，您亦可通过环境变量自定义为您的科研或机构身份：
+> ```bash
+> # Linux / macOS
+> export EDGAR_IDENTITY="YourName your_email@domain.com"
+> # Windows PowerShell
+> $env:EDGAR_IDENTITY="YourName your_email@domain.com"
+> ```
 
-### 3. 在线单票多维深度排雷 (命令行直连模式)
-秒级直连 SEC 官方，抓取最新连续两期财报、8-K 重大重述与内控审查，并运行纯数理模型打分：
+### 2. 在线单票多维深度排雷 (零下载开箱即用 ⚡)
+**无需下载任何本地历史数据包**，秒级直连 SEC 官方抓取目标公司最新两期财报、8-K 重大重述与内控缺陷，并运行纯数理模型打分：
 ```bash
 python main.py --ticker NVDA
 # 或
 python main.py --ticker TSLA
 ```
 
-### 3. 自选股股票池批量在线排雷并导出 Excel
+### 3. 交互式控制台模式 (最推荐：免记任何繁琐参数)
+直接在终端运行 `python main.py`，系统将自动弹出交互式菜单，输入数字编号并按提示即可执行全套功能：
+```bash
+python main.py
+```
+
+### 4. 自选股股票池批量在线排雷并导出 Excel
 一键排查一组自选股，自动评估打分并生成结构化 Excel 排雷榜单：
 ```bash
 python main.py --batch "AAPL,NVDA,TSLA,MSFT,BABA" --output "./我的自选股法务排雷榜单.xlsx"
 ```
 
-### 4. 本地数据湖仓管理 (全自动检测，已有数据智能跳过)
+### 5. 本地数据湖仓管理 (全自动检测，已有数据智能跳过)
 ```bash
 # 检查本地湖仓完整性与数据行数
 python main.py --check-data
@@ -122,7 +132,7 @@ python main.py --download
 python main.py --build
 ```
 
-### 5. 全美股全市场排雷大扫描 (以公司为核心主键)
+### 6. 全美股全市场排雷大扫描 (以公司为核心主键)
 系统自动检查本地数据，**若已有完整数据直接使用，无需重复下载**；若未就绪将全自动触发整备。
 导出的 Excel 具备直白透彻的**诊断说明与分条排雷 Notes**，并根据扫描对象与时间**智能动态命名**（如 `美股上市公司排雷榜单_2023-2026历年全景_20260903_0336.xlsx`）：
 * **直白成因 Notes**：不仅输出量化评分，更分条列出 `排雷诊断结论` 与 `具体风险成因与证据说明(Notes)`（例如：Beneish 模型超标涉嫌虚构收入、修正琼斯 DA 跨期估计粉饰、净现比断裂、Altman 破产危机、存货滞销积压等）；
@@ -141,12 +151,12 @@ python main.py --scan
 python main.py --scan --all-years
 ```
 
-### 6. 法务会计量化 Alpha 因子全市场回测
+### 7. 法务会计量化 Alpha 因子全市场回测
 ```bash
 python main.py --backtest
 ```
 
-### 7. 运行自动化测试套件
+### 8. 运行自动化测试套件
 ```bash
 # 验证核心算法精度与 10,000 份报表向量化基准压测
 python tests/test_forensic_engine.py

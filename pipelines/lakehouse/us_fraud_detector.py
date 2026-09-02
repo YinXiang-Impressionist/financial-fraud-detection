@@ -22,6 +22,18 @@ if sys.platform.startswith('win'):
     except Exception:
         pass
 
+# 项目根目录绝对路径锚定
+_LAKEHOUSE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(_LAKEHOUSE_DIR))
+DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "sec_financials.duckdb")
+DEFAULT_REPORT_PATH = os.path.join(PROJECT_ROOT, "美股上市公司财报造假风险扫描榜单.xlsx")
+
+# 动态时间计算
+_NOW = datetime.now()
+CURRENT_YEAR = _NOW.year
+DEFAULT_START_YEAR = CURRENT_YEAR - 10
+ACTIVE_LOOKBACK_YEAR = CURRENT_YEAR - 4  # 扫描活跃上市公司的有效观察期
+
 from forensic_engine import ForensicEvaluator
 
 
@@ -37,7 +49,7 @@ def generate_report_filename(prefix: str = "美股上市公司财报排雷榜单
         else:
             return f"{prefix}_{actual_min_y}-{actual_max_y}历年全景_{now_str}.xlsx"
     elif all_years or (fy and fy.lower() == 'all'):
-        return f"{prefix}_2016-2026历年全景_10年完整数据_{now_str}.xlsx"
+        return f"{prefix}_{DEFAULT_START_YEAR}-{CURRENT_YEAR}历年全景_10年完整数据_{now_str}.xlsx"
     elif fy:
         return f"{prefix}_{fy}财年_{now_str}.xlsx"
     else:
@@ -68,9 +80,9 @@ def safe_save_excel(data, file_path: str) -> str:
 
 
 class USStockFraudDetector:
-    def __init__(self, db_path="./sec_financials.duckdb", output_report="./美股上市公司财报造假风险扫描榜单.xlsx"):
-        self.db_path = os.path.abspath(db_path)
-        self.output_report = os.path.abspath(output_report)
+    def __init__(self, db_path: str = "", output_report: str = ""):
+        self.db_path = os.path.abspath(db_path) if db_path else DEFAULT_DB_PATH
+        self.output_report = os.path.abspath(output_report) if output_report else DEFAULT_REPORT_PATH
 
     def _ensure_db(self):
         if not os.path.exists(self.db_path):
@@ -173,7 +185,7 @@ class USStockFraudDetector:
         """使用 DuckDB + ForensicEvaluator 向量化引擎秒级全量扫描美股数万家公司"""
         self._ensure_db()
         out_file = output_report or self.output_report
-        mode_desc = "2016-2026 历年所有申报记录 (跨10年完整历史数据)" if all_years or fy.lower() == 'all' else (f"{fy} 财年数据" if fy else "全美股所有公司最新披露数据")
+        mode_desc = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR} 历年所有申报记录 (跨10年完整历史数据)" if all_years or fy.lower() == 'all' else (f"{fy} 财年数据" if fy else "全美股所有公司最新披露数据")
         
         print("\n" + "=" * 70)
         print(f"[*] 启动 DuckDB + ForensicEvaluator 极速向量化扫描引擎...")
@@ -188,11 +200,11 @@ class USStockFraudDetector:
         if fy and fy.lower() != 'all':
             fy_filter = f"AND s.fy = '{fy}'"
         elif all_years:
-            # 跨 10 年完整数据全景排查：严格限定 2016-2026，坚决过滤 2004 等历史迟交补报噪点
-            fy_filter = "AND try_cast(substr(cast(s.period as varchar), 1, 4) as int) >= 2016"
+            # 跨 10 年完整数据全景排查：动态限定起始年份，坚决过滤历史迟交补报噪点
+            fy_filter = f"AND try_cast(substr(cast(s.period as varchar), 1, 4) as int) >= {DEFAULT_START_YEAR}"
         else:
-            # 最新财年扫描模式：只扫描最近 3 年有真实披露的活跃上市公司，坚决过滤历史退市僵尸公司
-            fy_filter = "AND try_cast(substr(cast(s.period as varchar), 1, 4) as int) >= 2022"
+            # 最新财年扫描模式：只扫描最近活跃年份内有披露的上市公司，坚决过滤退市僵尸公司
+            fy_filter = f"AND try_cast(substr(cast(s.period as varchar), 1, 4) as int) >= {ACTIVE_LOOKBACK_YEAR}"
 
         if all_years or (fy and fy.lower() == 'all'):
             query = f"""
@@ -420,11 +432,11 @@ class USStockFraudDetector:
 
 def main():
     parser = argparse.ArgumentParser(description="SEC 美股上市公司财报造假与粉饰风险自动扫描审计引擎")
-    parser.add_argument("--db", type=str, default="./sec_financials.duckdb", help="SEC 美股 DuckDB 数据库路径")
-    parser.add_argument("--output", type=str, default="./美股上市公司财报造假风险扫描榜单.xlsx", help="美股输出风险报告路径")
+    parser.add_argument("--db", type=str, default=DEFAULT_DB_PATH, help="SEC 美股 DuckDB 数据库路径")
+    parser.add_argument("--output", type=str, default=DEFAULT_REPORT_PATH, help="美股输出风险报告路径")
     parser.add_argument("--company", "--ticker", dest="company", type=str, default="", help="审计单只美股公司，如: --company 'APPLE' 或 --company 'TESLA'")
-    parser.add_argument("--scan", action="store_true", help="全量扫描美股上万家公司的造假与粉饰风险 (DuckDB 秒级引擎)")
-    parser.add_argument("--all-years", action="store_true", help="全量扫描 2016-2026 历年跨 10 年全部历史申报记录")
+    parser.add_argument("--scan", action="store_true", help="全量扫描美股活跃上市公司的造假与粉饰风险 (DuckDB 秒级引擎)")
+    parser.add_argument("--all-years", action="store_true", help=f"全量扫描 {DEFAULT_START_YEAR}-{CURRENT_YEAR} 历年跨 10 年全部历史申报记录")
     parser.add_argument("--fy", type=str, default="", help="目标财年过滤，如: 2025、2024、或留空默认最新")
     parser.add_argument("--form", type=str, default="", help="报表类型过滤，如 10-K 或 10-Q，留空默认全部")
     args = parser.parse_args()

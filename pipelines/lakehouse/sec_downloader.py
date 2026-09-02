@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-SEC DERA 财务报表数据集 (2016Q1 ~ 2026Q2 跨10年完整历史数据集) 批量自动化下载工具
+SEC DERA 财务报表数据集自动化下载工具 (支持跨平台路径锚定、动态自然年份/季度推导与断点续传)
 """
 
 import os
 import sys
 import time
+from datetime import datetime
 import requests
 from tqdm import tqdm
 
@@ -16,27 +17,44 @@ if sys.platform.startswith('win'):
     except Exception:
         pass
 
-# SEC 合规 User-Agent
+# 项目根目录绝对路径锚定
+_LAKEHOUSE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(_LAKEHOUSE_DIR))
+DEFAULT_ZIPS_DIR = os.path.join(PROJECT_ROOT, "sec_zips")
+
+# 动态推导当前年份与自然季度
+_NOW = datetime.now()
+CURRENT_YEAR = _NOW.year
+CURRENT_QUARTER = (_NOW.month - 1) // 3 + 1
+DEFAULT_START_YEAR = CURRENT_YEAR - 10
+
+# SEC 合规 User-Agent (优先读取环境配置，无配置则使用规范科研标识)
+SEC_USER_AGENT = os.getenv(
+    "SEC_EDGAR_USER_AGENT",
+    "SecDerADataScraper/2.0 (Academic Forensic Research; contact: research_sec@quant.org)"
+)
 SEC_HEADERS = {
-    "User-Agent": "SecDerADataScraper/2.0 (Academic Research; contact: research_sec@quant.org)",
+    "User-Agent": SEC_USER_AGENT,
     "Accept-Encoding": "gzip, deflate",
     "Host": "www.sec.gov"
 }
 
 
 class SecDeraDownloader:
-    def __init__(self, download_dir="./sec_zips", start_year=2016, end_year=2026):
-        self.download_dir = os.path.abspath(download_dir)
-        self.start_year = start_year
-        self.end_year = end_year
+    def __init__(self, download_dir: str = "", start_year: int = DEFAULT_START_YEAR, end_year: int = CURRENT_YEAR):
+        self.download_dir = os.path.abspath(download_dir) if download_dir else DEFAULT_ZIPS_DIR
+        self.start_year = int(start_year)
+        self.end_year = int(end_year)
         os.makedirs(self.download_dir, exist_ok=True)
         self.base_url = "https://www.sec.gov/files/dera/data/financial-statement-data-sets"
 
     def get_quarter_list(self):
-        """生成 2016Q1 到 2026Q2 的季度清单 (跨10年完整历史区间)"""
+        """动态生成从 start_year 到 end_year 的合法季度清单 (自动匹配历史与当期自然季度)"""
         quarters = []
+        now_y = datetime.now().year
+        now_q = (datetime.now().month - 1) // 3 + 1
         for y in range(self.start_year, self.end_year + 1):
-            max_q = 2 if y == 2026 else 4
+            max_q = min(now_q, 4) if y == now_y else (4 if y < now_y else 0)
             for q in range(1, max_q + 1):
                 quarters.append(f"{y}q{q}")
         return quarters

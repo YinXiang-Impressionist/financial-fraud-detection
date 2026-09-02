@@ -20,12 +20,19 @@ if sys.platform.startswith('win'):
     except Exception:
         pass
 
+# 项目根目录绝对路径锚定
+_LAKEHOUSE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(_LAKEHOUSE_DIR))
+DEFAULT_ZIPS_DIR = os.path.join(PROJECT_ROOT, "sec_zips")
+DEFAULT_PARQUET_DIR = os.path.join(PROJECT_ROOT, "sec_parquet")
+DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "sec_financials.duckdb")
+
 
 class SecToDuckDBPipeline:
-    def __init__(self, zips_dir="./sec_zips", parquet_dir="./sec_parquet", db_path="./sec_financials.duckdb"):
-        self.zips_dir = os.path.abspath(zips_dir)
-        self.parquet_dir = os.path.abspath(parquet_dir)
-        self.db_path = os.path.abspath(db_path)
+    def __init__(self, zips_dir: str = "", parquet_dir: str = "", db_path: str = ""):
+        self.zips_dir = os.path.abspath(zips_dir) if zips_dir else DEFAULT_ZIPS_DIR
+        self.parquet_dir = os.path.abspath(parquet_dir) if parquet_dir else DEFAULT_PARQUET_DIR
+        self.db_path = os.path.abspath(db_path) if db_path else DEFAULT_DB_PATH
 
         for table in ["sub", "num", "tag", "pre"]:
             os.makedirs(os.path.join(self.parquet_dir, table), exist_ok=True)
