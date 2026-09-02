@@ -18,6 +18,7 @@ SEC 美股财务数据分析与法务排雷一键式主程序 (All-in-One US Sto
 
 import os
 import sys
+import time
 import argparse
 import pandas as pd
 
@@ -106,12 +107,20 @@ def ensure_lakehouse_ready(
 
 def audit_single_ticker_online(ticker: str) -> dict:
     """通过 edgar-tools 在线秒级抽取完整多维法务档案并执行确定性纯代码排雷"""
+    t_total_start = time.time()
     pipeline = EdgarPipeline()
     print(f"\n[*] 正在通过 SEC 官方通道在线抓取 {ticker} 的完整法务档案...")
-    dossier = pipeline.extract_full_forensic_profile(ticker)
     
+    t_fetch_start = time.time()
+    dossier = pipeline.extract_full_forensic_profile(ticker)
+    t_fetch = time.time() - t_fetch_start
+    
+    t_eval_start = time.time()
     # 传入当期与前期报表以计算修正琼斯与贝尼斯 8 变量模型
     report = ForensicEvaluator.evaluate_single(dossier, prev_record=dossier.get("prev_record"))
+    t_eval = time.time() - t_eval_start
+    t_total = time.time() - t_total_start
+
     r_info = dossier.get("restatement_info", {})
     c_info = dossier.get("control_info", {})
 
@@ -146,6 +155,11 @@ def audit_single_ticker_online(ticker: str) -> dict:
             print(f"  ❌ {item}")
     else:
         print("  ✅ 财务三张表勾稽严密，各项数理与统计指标均处于正常安全区间。")
+    print("-" * 75)
+    print("⏱️ 【法务审计运行耗时】:")
+    print(f"  ● SEC 官方数据抽取耗时: {t_fetch:.2f} 秒")
+    print(f"  ● 纯代码排雷评估耗时  : {t_eval * 1000:.2f} 毫秒 (零 LLM 极速执行)")
+    print(f"  ● 单票审计全流程总耗时: {t_total:.2f} 秒")
     print("=" * 75 + "\n")
 
     return {**dossier, **report}
@@ -153,11 +167,14 @@ def audit_single_ticker_online(ticker: str) -> dict:
 
 def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选股法务排雷榜单.xlsx"):
     """批量在线排雷一组股票并导出 Excel 报告"""
+    t_batch_start = time.time()
     print(f"\n[*] 启动股票池批量排雷任务，共 {len(ticker_list)} 只股票: {', '.join(ticker_list)}")
     results = []
     for t in ticker_list:
         try:
+            t_item_start = time.time()
             res = audit_single_ticker_online(t.strip())
+            t_item = time.time() - t_item_start
             results.append({
                 "代码": t.strip().upper(),
                 "公司名称": res.get('name'),
@@ -170,6 +187,7 @@ def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选�
                 "Sloan净应计": res.get('sloan_accrual'),
                 "8K重大重述": "是" if res.get('has_item_402_restatement') else "否",
                 "科研真值标签_历史造假": res.get('target_is_restated_fraud', False),
+                "单票耗时_秒": round(t_item, 2),
                 "营业收入_百万美元": round(res.get('sales', 0)/1e6, 2),
                 "净利润_百万美元": round(res.get('net_income', 0)/1e6, 2),
                 "经营现金流_百万美元": round(res.get('cfo', 0)/1e6, 2),
@@ -178,15 +196,23 @@ def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选�
         except Exception as e:
             print(f"[-] 抓取 {t} 失败: {e}")
 
+    t_batch_total = time.time() - t_batch_start
+    avg_time = (t_batch_total / len(results)) if results else 0.0
+
     if results:
         df_out = pd.DataFrame(results).sort_values(by="综合风险评分", ascending=False)
         actual_path = safe_save_excel(df_out, output_report)
         print("\n" + "=" * 70)
         print(f"🎉 批量法务排雷完成！成功分析 {len(df_out)} 只股票，报告已导出至: {os.path.abspath(actual_path)}")
+        print("-" * 70)
+        print("⏱️ 【批量审计耗时统计】:")
+        print(f"  ● 批量分析总耗时  : {t_batch_total:.2f} 秒")
+        print(f"  ● 平均每只分析耗时: {avg_time:.2f} 秒/只")
         print("=" * 70 + "\n")
 
 
 def main():
+    session_start = time.time()
     parser = argparse.ArgumentParser(description="SEC 美股财务数据分析与法务排雷一键式全功能主程序")
     
     # 在线实时审计参数
@@ -212,87 +238,92 @@ def main():
     
     args = parser.parse_args()
 
-    # 1. 在线单票多维审计 (秒级直连 SEC，无需本地海量历史数据)
-    if args.ticker:
-        audit_single_ticker_online(args.ticker)
-        return
-
-    # 2. 批量股票池在线审计
-    if args.batch:
-        tickers = [t.strip() for t in args.batch.split(",") if t.strip()]
-        audit_batch_tickers(tickers, output_report=args.output)
-        return
-
-    # 3. 显式检查本地数据完整性
-    if args.check_data:
-        ready, msg, count = check_lakehouse_ready(args.db)
-        print("\n" + "=" * 65)
-        print("🔍 【本地 SEC 数据湖仓完整性检查报告】")
-        print("=" * 65)
-        print(f"● 数据库文件路径: {os.path.abspath(args.db)}")
-        print(f"● 湖仓就绪状态  : {'✅ 完整可用' if ready else '❌ 尚未就绪'}")
-        print(f"● 状态详细说明  : {msg}")
-        if ready:
-            print(f"● 总财报申报数  : {count:,} 份")
-        print("=" * 65 + "\n")
-        return
-
-    # 4. 显式单步下载任务 (已有文件自动跳过，断点续传)
-    if args.download:
-        downloader = SecDeraDownloader(download_dir=args.zips_dir, start_year=args.start_year, end_year=args.end_year)
-        downloader.run()
-        return
-
-    # 5. 显式单步构建湖仓任务
-    if args.build:
-        builder = SecToDuckDBPipeline(zips_dir=args.zips_dir, parquet_dir=args.parquet_dir, db_path=args.db)
-        builder.run()
-        return
-
-    # 6. 本地全市场大扫描或因子回测 (全自动保证数据可用，已有数据免下载)
-    if args.scan or args.all_years or args.backtest:
-        if not ensure_lakehouse_ready(
-            db_path=args.db,
-            zips_dir=args.zips_dir,
-            parquet_dir=args.parquet_dir,
-            start_year=args.start_year,
-            end_year=args.end_year
-        ):
+    try:
+        # 1. 在线单票多维审计 (秒级直连 SEC，无需本地海量历史数据)
+        if args.ticker:
+            audit_single_ticker_online(args.ticker)
             return
 
-        if args.scan or args.all_years:
-            detector = USStockFraudDetector(db_path=args.db, output_report=args.output)
-            detector.scan_all_stocks(fy=args.fy, all_years=args.all_years, output_report=args.output)
-        elif args.backtest:
-            from backtest import ForensicFactorEngine, FactorBacktester
-            factor_engine = ForensicFactorEngine(db_path=args.db)
-            panel = factor_engine.build_factor_panel()
-            backtester = FactorBacktester(panel)
-            for f_col, f_name in [
-                ("factor_cfo_quality", "1. 净现比与造血质量因子 (CFO/NetIncome)"),
-                ("alpha_composite_forensic", "2. 综合法务会计复合质量 Alpha 因子"),
-                ("factor_sloan_accrual", "3. Sloan 净应计利润异象因子"),
-                ("factor_goodwill_safety", "4. 商誉安全排雷因子"),
-                ("factor_cash_debt_spread", "5. 存贷双高异常排雷因子")
-            ]:
-                backtester.run_backtest(factor_col=f_col, factor_name=f_name)
-        return
+        # 2. 批量股票池在线审计
+        if args.batch:
+            tickers = [t.strip() for t in args.batch.split(",") if t.strip()]
+            audit_batch_tickers(tickers, output_report=args.output)
+            return
 
-    # 7. 默认无参提示与演示
-    print("\n" + "=" * 70)
-    print("🌟 【SEC 美股立体法务会计与财报排雷系统 (0 LLM 纯代码极速引擎)】")
-    print("=" * 70)
-    print("常用命令指南:")
-    print("  1. 在线单票多维审计:    python main.py --ticker NVDA")
-    print("  2. 在线批量股票池体检:   python main.py --batch 'AAPL,NVDA,TSLA,BABA'")
-    print("  3. 检查本地湖仓完整性:   python main.py --check-data")
-    print("  4. 下载/补齐全市场数据:  python main.py --download (已有数据自动跳过)")
-    print("  5. 本地湖仓全市场大扫描: python main.py --scan (自动检测数据，无数据自建)")
-    print("  6. 2020-2026全量大排查: python main.py --scan --all-years")
-    print("  7. 法务会计量化因子回测: python main.py --backtest")
-    print("=" * 70)
-    print("[*] 正在执行默认演示 (NVDA 在线多维立体法务排雷)...")
-    audit_single_ticker_online("NVDA")
+        # 3. 显式检查本地数据完整性
+        if args.check_data:
+            ready, msg, count = check_lakehouse_ready(args.db)
+            print("\n" + "=" * 65)
+            print("🔍 【本地 SEC 数据湖仓完整性检查报告】")
+            print("=" * 65)
+            print(f"● 数据库文件路径: {os.path.abspath(args.db)}")
+            print(f"● 湖仓就绪状态  : {'✅ 完整可用' if ready else '❌ 尚未就绪'}")
+            print(f"● 状态详细说明  : {msg}")
+            if ready:
+                print(f"● 总财报申报数  : {count:,} 份")
+            print("=" * 65 + "\n")
+            return
+
+        # 4. 显式单步下载任务 (已有文件自动跳过，断点续传)
+        if args.download:
+            downloader = SecDeraDownloader(download_dir=args.zips_dir, start_year=args.start_year, end_year=args.end_year)
+            downloader.run()
+            return
+
+        # 5. 显式单步构建湖仓任务
+        if args.build:
+            builder = SecToDuckDBPipeline(zips_dir=args.zips_dir, parquet_dir=args.parquet_dir, db_path=args.db)
+            builder.run()
+            return
+
+        # 6. 本地全市场大扫描或因子回测 (全自动保证数据可用，已有数据免下载)
+        if args.scan or args.all_years or args.backtest:
+            if not ensure_lakehouse_ready(
+                db_path=args.db,
+                zips_dir=args.zips_dir,
+                parquet_dir=args.parquet_dir,
+                start_year=args.start_year,
+                end_year=args.end_year
+            ):
+                return
+
+            if args.scan or args.all_years:
+                detector = USStockFraudDetector(db_path=args.db, output_report=args.output)
+                detector.scan_all_stocks(fy=args.fy, all_years=args.all_years, output_report=args.output)
+            elif args.backtest:
+                from backtest import ForensicFactorEngine, FactorBacktester
+                factor_engine = ForensicFactorEngine(db_path=args.db)
+                panel = factor_engine.build_factor_panel()
+                backtester = FactorBacktester(panel)
+                for f_col, f_name in [
+                    ("factor_cfo_quality", "1. 净现比与造血质量因子 (CFO/NetIncome)"),
+                    ("alpha_composite_forensic", "2. 综合法务会计复合质量 Alpha 因子"),
+                    ("factor_sloan_accrual", "3. Sloan 净应计利润异象因子"),
+                    ("factor_goodwill_safety", "4. 商誉安全排雷因子"),
+                    ("factor_cash_debt_spread", "5. 存贷双高异常排雷因子")
+                ]:
+                    backtester.run_backtest(factor_col=f_col, factor_name=f_name)
+            return
+
+        # 7. 默认无参提示与演示
+        print("\n" + "=" * 70)
+        print("🌟 【SEC 美股立体法务会计与财报排雷系统 (0 LLM 纯代码极速引擎)】")
+        print("=" * 70)
+        print("常用命令指南:")
+        print("  1. 在线单票多维审计:    python main.py --ticker NVDA")
+        print("  2. 在线批量股票池体检:   python main.py --batch 'AAPL,NVDA,TSLA,BABA'")
+        print("  3. 检查本地湖仓完整性:   python main.py --check-data")
+        print("  4. 下载/补齐全市场数据:  python main.py --download (已有数据自动跳过)")
+        print("  5. 本地湖仓全市场大扫描: python main.py --scan (自动检测数据，无数据自建)")
+        print("  6. 2020-2026全量大排查: python main.py --scan --all-years")
+        print("  7. 法务会计量化因子回测: python main.py --backtest")
+        print("=" * 70)
+        print("[*] 正在执行默认演示 (NVDA 在线多维立体法务排雷)...")
+        audit_single_ticker_online("NVDA")
+
+    finally:
+        total_session = time.time() - session_start
+        print(f"⏱️ 【命令行会话总耗时】: {total_session:.2f} 秒\n")
 
 
 if __name__ == "__main__":
