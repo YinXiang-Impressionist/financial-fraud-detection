@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 SEC 美股上市公司财报造假与粉饰风险自动扫描审计引擎 (US Stocks Forensic Audit Engine)
-基于 DuckDB 向量化计算，提供秒级单票诊断、最新披露全景扫描与 2020-2026 历年全量历史大排查。
+全面整合 forensic_engine 法务会计规则库与 Beneish M-Score / Altman Z-Score / Sloan 净应计模型。
+支持秒级单票深度诊断与全美股数十万申报记录全量向量化极速扫描。
 """
 
 import os
@@ -18,6 +19,8 @@ if sys.platform.startswith('win'):
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
         pass
+
+from forensic_engine import ForensicEvaluator
 
 
 def safe_save_excel(df: pd.DataFrame, file_path: str) -> str:
@@ -43,38 +46,53 @@ class USStockFraudDetector:
     def __init__(self, db_path="./sec_financials.duckdb", output_report="./美股上市公司财报造假风险扫描榜单.xlsx"):
         self.db_path = os.path.abspath(db_path)
         self.output_report = os.path.abspath(output_report)
+
+    def _ensure_db(self):
         if not os.path.exists(self.db_path):
-            raise FileNotFoundError(f"未找到 SEC DuckDB 数据库 ({self.db_path})！请先运行 sec_to_duckdb.py。")
+            raise FileNotFoundError(f"未找到 SEC DuckDB 数据库 ({self.db_path})！请先运行 sec_to_duckdb.py 构建湖仓。")
 
     def analyze_single_stock(self, cik_or_name: str, fy: str = "") -> dict:
-        """从 DuckDB 秒级提取指定美股的报表并执行造假与粉饰排雷审计"""
+        """从 DuckDB 秒级提取指定美股的报表并执行深度法务排雷审计"""
+        self._ensure_db()
         con = duckdb.connect(self.db_path, read_only=True)
         fy_filter = f"AND s.fy = '{fy}'" if fy else ""
         
+        # 提取最近 2 期报表以支持时序比率与 Beneish 计算
         query = f"""
-            WITH target_sub AS (
+            WITH target_subs AS (
                 SELECT cik, name, adsh, form, period, fy, fp
                 FROM sub s
                 WHERE (UPPER(s.name) LIKE UPPER(?) OR CAST(s.cik AS VARCHAR) = ?)
                   AND s.form IN ('10-K', '10-Q')
                   {fy_filter}
                 ORDER BY s.period DESC
-                LIMIT 1
+                LIMIT 2
             )
             SELECT 
                 s.cik, s.name, s.form, s.period, s.fy, s.fp,
-                MAX(CASE WHEN n.tag IN ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet') THEN n.value END) AS revenue,
+                MAX(CASE WHEN n.tag IN ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet') THEN n.value END) AS sales,
+                MAX(CASE WHEN n.tag IN ('CostOfGoodsAndServicesSold', 'CostOfGoodsSold') THEN n.value END) AS cogs,
+                MAX(CASE WHEN n.tag IN ('OperatingIncomeLoss') THEN n.value END) AS operating_income,
                 MAX(CASE WHEN n.tag IN ('NetIncomeLoss', 'ProfitLoss') THEN n.value END) AS net_income,
                 MAX(CASE WHEN n.tag = 'Assets' THEN n.value END) AS assets,
+                MAX(CASE WHEN n.tag = 'AssetsCurrent' THEN n.value END) AS current_assets,
+                MAX(CASE WHEN n.tag = 'Liabilities' THEN n.value END) AS liabilities,
+                MAX(CASE WHEN n.tag = 'LiabilitiesCurrent' THEN n.value END) AS current_liabilities,
                 MAX(CASE WHEN n.tag IN ('StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest') THEN n.value END) AS equity,
                 MAX(CASE WHEN n.tag = 'NetCashProvidedByUsedInOperatingActivities' THEN n.value END) AS cfo,
+                MAX(CASE WHEN n.tag = 'NetCashProvidedByUsedInInvestingActivities' THEN n.value END) AS cfi,
+                MAX(CASE WHEN n.tag = 'NetCashProvidedByUsedInFinancingActivities' THEN n.value END) AS cff,
                 MAX(CASE WHEN n.tag IN ('Goodwill', 'GoodwillGross') THEN n.value END) AS goodwill,
-                MAX(CASE WHEN n.tag IN ('AccountsReceivableNetCurrent', 'AccountsAndOtherReceivablesNetCurrent') THEN n.value END) AS accounts_receivable,
+                MAX(CASE WHEN n.tag IN ('AccountsReceivableNetCurrent', 'AccountsAndOtherReceivablesNetCurrent') THEN n.value END) AS ar,
+                MAX(CASE WHEN n.tag IN ('InventoryNet') THEN n.value END) AS inv,
+                MAX(CASE WHEN n.tag IN ('PropertyPlantAndEquipmentNet') THEN n.value END) AS ppe_net,
+                MAX(CASE WHEN n.tag IN ('ConstructionInProgress') THEN n.value END) AS cip,
                 MAX(CASE WHEN n.tag IN ('CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents') THEN n.value END) AS cash,
                 MAX(CASE WHEN n.tag IN ('LongTermDebtNoncurrent', 'LongTermDebt', 'ShortTermBorrowings') THEN n.value END) AS debt
-            FROM target_sub s
+            FROM target_subs s
             JOIN num n ON s.adsh = n.adsh
             GROUP BY s.cik, s.name, s.form, s.period, s.fy, s.fp
+            ORDER BY s.period DESC
         """
         df = con.execute(query, [f"%{cik_or_name}%", cik_or_name]).df()
         con.close()
@@ -83,89 +101,57 @@ class USStockFraudDetector:
             print(f"[-] 未在 DuckDB 中检索到公司 '{cik_or_name}' 的财报数据。")
             return {}
 
-        row = df.iloc[0]
-        cik = row['cik']
-        name = row['name']
-        rev = row['revenue'] if pd.notnull(row['revenue']) else 0.0
-        ni = row['net_income'] if pd.notnull(row['net_income']) else 0.0
-        assets = row['assets'] if pd.notnull(row['assets']) else 0.0
-        equity = row['equity'] if pd.notnull(row['equity']) else 0.0
-        cfo = row['cfo'] if pd.notnull(row['cfo']) else 0.0
-        gw = row['goodwill'] if pd.notnull(row['goodwill']) else 0.0
-        ar = row['accounts_receivable'] if pd.notnull(row['accounts_receivable']) else 0.0
-        cash = row['cash'] if pd.notnull(row['cash']) else 0.0
-        debt = row['debt'] if pd.notnull(row['debt']) else 0.0
+        curr_record = df.iloc[0].to_dict()
+        prev_record = df.iloc[1].to_dict() if len(df) > 1 else None
 
-        score = 0
-        warnings = []
+        # 执行法务排雷引擎深度评估
+        report = ForensicEvaluator.evaluate_single(curr_record, prev_record=prev_record)
 
-        # 规则 1: 净现比严重背离
-        if ni > 5e7:
-            if cfo <= 0:
-                score += 25
-                warnings.append(f"【净现比断裂】净利润(${ni/1e6:.1f}M)盈利，但经营现金流为负(${cfo/1e6:.1f}M)")
-            elif cfo / ni < 0.3:
-                score += 15
-                warnings.append(f"【现金流羸弱】净现比仅为 {cfo/ni:.2f}")
+        cik = curr_record['cik']
+        name = curr_record['name']
+        rev = curr_record.get('sales') or 0.0
+        ni = curr_record.get('net_income') or 0.0
+        cfo = curr_record.get('cfo') or 0.0
+        assets = curr_record.get('assets') or 0.0
+        equity = curr_record.get('equity') or 0.0
+        gw = curr_record.get('goodwill') or 0.0
 
-        # 规则 2: 高额商誉悬顶
-        if equity > 0 and gw > 0:
-            gw_ratio = gw / equity
-            if gw_ratio > 0.4 and gw > 5e7:
-                score += 20
-                warnings.append(f"【高额商誉悬顶】商誉占净资产比例达 {gw_ratio*100:.1f}% (${gw/1e6:.1f}M)")
-
-        # 规则 3: 应收账款占收入比例畸高
-        if rev > 0 and ar > 0:
-            ar_ratio = ar / rev
-            if ar_ratio > 0.6 and ar > 5e7:
-                score += 15
-                warnings.append(f"【应收账款畸高】应收账款占收入比重达 {ar_ratio*100:.1f}% (${ar/1e6:.1f}M)")
-
-        # 规则 4: 资不抵债或负股东权益
-        if equity < 0 and assets > 1e7:
-            score += 30
-            warnings.append(f"【资不抵债】股东权益为赤字负值 (${equity/1e6:.1f}M)，面临巨大重组/破产风险")
-
-        # 规则 5: 存贷双高与流动性受限
-        if cash > 5e8 and debt > 1e9 and cash / debt > 0.7:
-            score += 20
-            warnings.append(f"【存贷双高疑似】大额现金(${cash/1e6:.1f}M)与高额债务(${debt/1e6:.1f}M)并存")
-
-        risk_level = "[极危] 红色高危" if score >= 50 else ("[预警] 橙色关注" if score >= 30 else ("[提示] 黄色提示" if score >= 15 else "[稳健] 绿色正常"))
-
-        print("\n" + "=" * 65)
-        print(f"【美股公司法务审计报告】: {name} (CIK: {cik})")
-        print("=" * 65)
-        print(f"● 报告期数据  : {row['period']} (Form {row['form']} | FY: {row['fy']})")
-        print(f"● 营业收入    : ${rev/1e6:.2f} Million")
-        print(f"● 净利润      : ${ni/1e6:.2f} Million")
-        print(f"● 经营现金流  : ${cfo/1e6:.2f} Million")
-        print(f"● 股东权益    : ${equity/1e6:.2f} Million")
-        print(f"● 综合风险评分: {score} 分")
-        print(f"● 综合风险等级: {risk_level}")
-        print(f"● 命中风险项数: {len(warnings)} 项")
-        print("-" * 65)
-        print("【预警详情与审计诊断】:")
-        if warnings:
-            for item in warnings:
+        print("\n" + "=" * 70)
+        print(f"🏛️ 【美股法务会计审计与排雷诊断报告】: {name} (CIK: {cik})")
+        print("=" * 70)
+        print(f"● 报告期数据  : {curr_record.get('period')} (Form {curr_record.get('form')} | FY: {curr_record.get('fy')})")
+        print(f"● 营业收入    : ${rev/1e6:,.2f} Million")
+        print(f"● 净利润      : ${ni/1e6:,.2f} Million")
+        print(f"● 经营现金流  : ${cfo/1e6:,.2f} Million")
+        print(f"● 股东总权益  : ${equity/1e6:,.2f} Million")
+        print(f"● 账面商誉    : ${gw/1e6:,.2f} Million")
+        print("-" * 70)
+        print(f"● 综合风险评分: {report['total_risk_score']} 分 (0~100, 越高风险越大)")
+        print(f"● 综合风险等级: {report['risk_level']}")
+        print(f"● 命中排雷项数: {report['warning_count']} 项")
+        print(f"● Altman Z分值: {report.get('altman_z')} ({report.get('altman_zone')})")
+        print(f"● Sloan净应计 : {report.get('sloan_accrual')} ({'高应计水分' if report.get('sloan_accrual', 0) > 0.1 else '现金含量充足'})")
+        if report.get('beneish_m_score') is not None:
+            print(f"● Beneish M分 : {report.get('beneish_m_score')} ({'高危操纵嫌疑' if report.get('beneish_is_manipulator') else '未见系统性操纵'})")
+        print("-" * 70)
+        print("【预警明细与法务诊断】:")
+        if report['warnings']:
+            for item in report['warnings']:
                 print(f"  ❌ {item}")
         else:
-            print("  ✅ 财务三张表指标勾稽稳健，未触发高危造假预警。")
-        print("=" * 65 + "\n")
+            print("  ✅ 财务三张表勾稽稳健，各项法务指标均处于正常安全区间。")
+        print("=" * 70 + "\n")
 
-        return {
-            "CIK": cik, "公司名称": name, "报告期": row['period'], "报表类型": row['form'],
-            "风险评分": score, "风险等级": risk_level, "高危预警详情": " | ".join(warnings) if warnings else "正常"
-        }
+        return report
 
     def scan_all_stocks(self, fy: str = "", form: str = "", all_years: bool = False, output_report: str = ""):
-        """使用 DuckDB 向量化引擎秒级全量扫描美股数万家公司"""
+        """使用 DuckDB + ForensicEvaluator 向量化引擎秒级全量扫描美股数万家公司"""
+        self._ensure_db()
         out_file = output_report or self.output_report
-        mode_desc = "2020-2026 历年所有申报记录 (全量历史)" if all_years or fy.lower() == 'all' else (f"{fy} 财年数据" if fy else "全美股所有公司最新披露数据 (含2026最新)")
+        mode_desc = "2020-2026 历年所有申报记录 (全量历史)" if all_years or fy.lower() == 'all' else (f"{fy} 财年数据" if fy else "全美股所有公司最新披露数据")
         
         print("\n" + "=" * 70)
-        print(f"[*] 正在通过 DuckDB 向量化引擎全量扫描美股上市公司造假风险...")
+        print(f"[*] 启动 DuckDB + ForensicEvaluator 极速向量化扫描引擎...")
         print(f"[*] 扫描范围: {mode_desc} | 报表类型: {form if form else '10-K & 10-Q'}")
         print("=" * 70 + "\n")
 
@@ -184,13 +170,23 @@ class USStockFraudDetector:
                 )
                 SELECT 
                     s.cik, s.name, s.form, s.period, s.fy, s.fp,
-                    MAX(CASE WHEN n.tag IN ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet') THEN n.value END) AS revenue,
+                    MAX(CASE WHEN n.tag IN ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet') THEN n.value END) AS sales,
+                    MAX(CASE WHEN n.tag IN ('CostOfGoodsAndServicesSold', 'CostOfGoodsSold') THEN n.value END) AS cogs,
+                    MAX(CASE WHEN n.tag IN ('OperatingIncomeLoss') THEN n.value END) AS operating_income,
                     MAX(CASE WHEN n.tag IN ('NetIncomeLoss', 'ProfitLoss') THEN n.value END) AS net_income,
                     MAX(CASE WHEN n.tag = 'Assets' THEN n.value END) AS assets,
+                    MAX(CASE WHEN n.tag = 'AssetsCurrent' THEN n.value END) AS current_assets,
+                    MAX(CASE WHEN n.tag = 'Liabilities' THEN n.value END) AS liabilities,
+                    MAX(CASE WHEN n.tag = 'LiabilitiesCurrent' THEN n.value END) AS current_liabilities,
                     MAX(CASE WHEN n.tag IN ('StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest') THEN n.value END) AS equity,
                     MAX(CASE WHEN n.tag = 'NetCashProvidedByUsedInOperatingActivities' THEN n.value END) AS cfo,
+                    MAX(CASE WHEN n.tag = 'NetCashProvidedByUsedInInvestingActivities' THEN n.value END) AS cfi,
+                    MAX(CASE WHEN n.tag = 'NetCashProvidedByUsedInFinancingActivities' THEN n.value END) AS cff,
                     MAX(CASE WHEN n.tag IN ('Goodwill', 'GoodwillGross') THEN n.value END) AS goodwill,
-                    MAX(CASE WHEN n.tag IN ('AccountsReceivableNetCurrent', 'AccountsAndOtherReceivablesNetCurrent') THEN n.value END) AS accounts_receivable,
+                    MAX(CASE WHEN n.tag IN ('AccountsReceivableNetCurrent', 'AccountsAndOtherReceivablesNetCurrent') THEN n.value END) AS ar,
+                    MAX(CASE WHEN n.tag IN ('InventoryNet') THEN n.value END) AS inv,
+                    MAX(CASE WHEN n.tag IN ('PropertyPlantAndEquipmentNet') THEN n.value END) AS ppe_net,
+                    MAX(CASE WHEN n.tag IN ('ConstructionInProgress') THEN n.value END) AS cip,
                     MAX(CASE WHEN n.tag IN ('CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents') THEN n.value END) AS cash,
                     MAX(CASE WHEN n.tag IN ('LongTermDebtNoncurrent', 'LongTermDebt', 'ShortTermBorrowings') THEN n.value END) AS debt
                 FROM target_sub s
@@ -212,13 +208,23 @@ class USStockFraudDetector:
                 )
                 SELECT 
                     s.cik, s.name, s.form, s.period, s.fy, s.fp,
-                    MAX(CASE WHEN n.tag IN ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet') THEN n.value END) AS revenue,
+                    MAX(CASE WHEN n.tag IN ('Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet') THEN n.value END) AS sales,
+                    MAX(CASE WHEN n.tag IN ('CostOfGoodsAndServicesSold', 'CostOfGoodsSold') THEN n.value END) AS cogs,
+                    MAX(CASE WHEN n.tag IN ('OperatingIncomeLoss') THEN n.value END) AS operating_income,
                     MAX(CASE WHEN n.tag IN ('NetIncomeLoss', 'ProfitLoss') THEN n.value END) AS net_income,
                     MAX(CASE WHEN n.tag = 'Assets' THEN n.value END) AS assets,
+                    MAX(CASE WHEN n.tag = 'AssetsCurrent' THEN n.value END) AS current_assets,
+                    MAX(CASE WHEN n.tag = 'Liabilities' THEN n.value END) AS liabilities,
+                    MAX(CASE WHEN n.tag = 'LiabilitiesCurrent' THEN n.value END) AS current_liabilities,
                     MAX(CASE WHEN n.tag IN ('StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest') THEN n.value END) AS equity,
                     MAX(CASE WHEN n.tag = 'NetCashProvidedByUsedInOperatingActivities' THEN n.value END) AS cfo,
+                    MAX(CASE WHEN n.tag = 'NetCashProvidedByUsedInInvestingActivities' THEN n.value END) AS cfi,
+                    MAX(CASE WHEN n.tag = 'NetCashProvidedByUsedInFinancingActivities' THEN n.value END) AS cff,
                     MAX(CASE WHEN n.tag IN ('Goodwill', 'GoodwillGross') THEN n.value END) AS goodwill,
-                    MAX(CASE WHEN n.tag IN ('AccountsReceivableNetCurrent', 'AccountsAndOtherReceivablesNetCurrent') THEN n.value END) AS accounts_receivable,
+                    MAX(CASE WHEN n.tag IN ('AccountsReceivableNetCurrent', 'AccountsAndOtherReceivablesNetCurrent') THEN n.value END) AS ar,
+                    MAX(CASE WHEN n.tag IN ('InventoryNet') THEN n.value END) AS inv,
+                    MAX(CASE WHEN n.tag IN ('PropertyPlantAndEquipmentNet') THEN n.value END) AS ppe_net,
+                    MAX(CASE WHEN n.tag IN ('ConstructionInProgress') THEN n.value END) AS cip,
                     MAX(CASE WHEN n.tag IN ('CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents') THEN n.value END) AS cash,
                     MAX(CASE WHEN n.tag IN ('LongTermDebtNoncurrent', 'LongTermDebt', 'ShortTermBorrowings') THEN n.value END) AS debt
                 FROM target_sub s
@@ -229,93 +235,46 @@ class USStockFraudDetector:
         df_raw = con.execute(query).df()
         con.close()
 
-        print(f"[+] DuckDB 数据聚合完成，耗时 {time.time()-t0:.2f} 秒，共提取 {len(df_raw):,} 份财报记录。")
-        print("[*] 正在并行计算每家公司的 8 大造假/粉饰风险评分与诊断详情...")
+        print(f"[+] DuckDB 湖仓聚合完成，耗时 {time.time()-t0:.2f} 秒，提取 {len(df_raw):,} 份财报记录。")
+        print("[*] 正在执行全量向量化法务排雷算法与多模型预测...")
 
-        results = []
-        for _, row in df_raw.iterrows():
-            cik = row['cik']
-            name = row['name']
-            rev = row['revenue'] if pd.notnull(row['revenue']) else 0.0
-            ni = row['net_income'] if pd.notnull(row['net_income']) else 0.0
-            assets = row['assets'] if pd.notnull(row['assets']) else 0.0
-            equity = row['equity'] if pd.notnull(row['equity']) else 0.0
-            cfo = row['cfo'] if pd.notnull(row['cfo']) else 0.0
-            gw = row['goodwill'] if pd.notnull(row['goodwill']) else 0.0
-            ar = row['accounts_receivable'] if pd.notnull(row['accounts_receivable']) else 0.0
-            cash = row['cash'] if pd.notnull(row['cash']) else 0.0
-            debt = row['debt'] if pd.notnull(row['debt']) else 0.0
+        t_eval = time.time()
+        df_scored = ForensicEvaluator.evaluate_dataframe(df_raw, entity_col='cik', time_col='period')
+        print(f"[+] 向量化评估完毕，耗时 {time.time()-t_eval:.2f} 秒！")
 
-            score = 0
-            warnings = []
+        # 整理导出列
+        df_out = df_scored[[
+            'cik', 'name', 'fy', 'period', 'form',
+            'total_risk_score', 'risk_level', 'hit_risk_count',
+            'altman_z_score', 'altman_zone', 'sloan_accrual',
+            'beneish_m_score', 'beneish_is_manipulator',
+            'sales', 'net_income', 'cfo', 'assets', 'equity', 'goodwill'
+        ]].copy()
 
-            # 规则 1: 净现比严重背离
-            if ni > 5e7:
-                if cfo <= 0:
-                    score += 25
-                    warnings.append(f"【净现比断裂】净利润({ni/1e6:.1f}M)盈利，但经营现金流为负({cfo/1e6:.1f}M)")
-                elif cfo / ni < 0.3:
-                    score += 15
-                    warnings.append(f"【现金流羸弱】净现比仅为 {cfo/ni:.2f}")
+        df_out['营业收入_百万美元'] = (df_out['sales'].fillna(0) / 1e6).round(2)
+        df_out['净利润_百万美元'] = (df_out['net_income'].fillna(0) / 1e6).round(2)
+        df_out['经营现金流_百万美元'] = (df_out['cfo'].fillna(0) / 1e6).round(2)
+        df_out['总资产_百万美元'] = (df_out['assets'].fillna(0) / 1e6).round(2)
+        df_out['股东权益_百万美元'] = (df_out['equity'].fillna(0) / 1e6).round(2)
+        df_out['商誉_百万美元'] = (df_out['goodwill'].fillna(0) / 1e6).round(2)
 
-            # 规则 2: 高额商誉悬顶
-            if equity > 0 and gw > 0:
-                gw_ratio = gw / equity
-                if gw_ratio > 0.4 and gw > 5e7:
-                    score += 20
-                    warnings.append(f"【高额商誉悬顶】商誉占净资产比例达 {gw_ratio*100:.1f}% (${gw/1e6:.1f}M)")
+        df_out = df_out.drop(columns=['sales', 'net_income', 'cfo', 'assets', 'equity', 'goodwill'])
+        df_out = df_out.sort_values(by='total_risk_score', ascending=False)
 
-            # 规则 3: 应收账款占收入比例畸高
-            if rev > 0 and ar > 0:
-                ar_ratio = ar / rev
-                if ar_ratio > 0.6 and ar > 5e7:
-                    score += 15
-                    warnings.append(f"【应收账款畸高】应收账款占收入比重达 {ar_ratio*100:.1f}% (${ar/1e6:.1f}M)")
-
-            # 规则 4: 资不抵债或负股东权益
-            if equity < 0 and assets > 1e7:
-                score += 30
-                warnings.append(f"【资不抵债】股东权益为赤字负值 (${equity/1e6:.1f}M)，面临巨大重组/破产风险")
-
-            # 规则 5: 存贷双高与流动性受限
-            if cash > 5e8 and debt > 1e9 and cash / debt > 0.7:
-                score += 20
-                warnings.append(f"【存贷双高疑似】大额现金(${cash/1e6:.1f}M)与高额债务(${debt/1e6:.1f}M)并存")
-
-            risk_level = "[极危] 红色高危" if score >= 50 else ("[预警] 橙色关注" if score >= 30 else ("[提示] 黄色提示" if score >= 15 else "[稳健] 绿色正常"))
-
-            results.append({
-                "CIK": cik,
-                "公司名称": name,
-                "财年": row['fy'],
-                "报告期": row['period'],
-                "报表类型": row['form'],
-                "营业收入_百万美元": round(rev / 1e6, 2),
-                "净利润_百万美元": round(ni / 1e6, 2),
-                "经营现金流_百万美元": round(cfo / 1e6, 2),
-                "总资产_百万美元": round(assets / 1e6, 2),
-                "股东权益_百万美元": round(equity / 1e6, 2),
-                "商誉_百万美元": round(gw / 1e6, 2),
-                "风险评分": score,
-                "风险等级": risk_level,
-                "命中风险项数": len(warnings),
-                "高危预警详情": " | ".join(warnings) if warnings else "财务指标稳健，未触发高危预警"
-            })
-
-        df_out = pd.DataFrame(results).sort_values(by="风险评分", ascending=False)
         actual_output = safe_save_excel(df_out, out_file)
 
         print("\n" + "=" * 70)
         print("🎉 【美股全市场财务造假与粉饰风险扫描完成！】")
         print("=" * 70)
         print(f"● 扫描财报总数: {len(df_out):,} 份")
-        print(f"● 红色高危记录: {len(df_out[df_out['风险评分'] >= 50]):,} 份")
-        print(f"● 橙色关注记录: {len(df_out[(df_out['风险评分'] >= 30) & (df_out['风险评分'] < 50)]):,} 份")
-        print(f"● 黄色提示记录: {len(df_out[(df_out['风险评分'] >= 15) & (df_out['风险评分'] < 30)]):,} 份")
+        print(f"● 红色高危记录: {len(df_out[df_out['total_risk_score'] >= 50]):,} 份")
+        print(f"● 橙色关注记录: {len(df_out[(df_out['total_risk_score'] >= 30) & (df_out['total_risk_score'] < 50)]):,} 份")
+        print(f"● 黄色提示记录: {len(df_out[(df_out['total_risk_score'] >= 15) & (df_out['total_risk_score'] < 30)]):,} 份")
+        print(f"● 绿色安全记录: {len(df_out[df_out['total_risk_score'] < 15]):,} 份")
         print(f"● 全景报告导出: {os.path.abspath(actual_output)}")
         print("=" * 70)
         print("\n【美股风险评分 TOP 20 排行榜】:")
-        print(df_out[["CIK", "公司名称", "财年", "报告期", "风险评分", "风险等级", "命中风险项数", "净利润_百万美元", "经营现金流_百万美元"]].head(20).to_string(index=False))
+        print(df_out[["cik", "name", "fy", "period", "total_risk_score", "risk_level", "hit_risk_count", "altman_z_score", "sloan_accrual"]].head(20).to_string(index=False))
 
 
 def main():
@@ -336,7 +295,6 @@ def main():
     elif args.scan or args.all_years:
         detector.scan_all_stocks(fy=args.fy, form=args.form, all_years=args.all_years, output_report=args.output)
     else:
-        # 默认模式：全美股最新一期扫描
         detector.scan_all_stocks(fy=args.fy, form=args.form, all_years=args.all_years, output_report=args.output)
 
 
