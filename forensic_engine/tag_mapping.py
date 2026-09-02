@@ -40,7 +40,11 @@ CN_ASHAR_FIELD_MAP = {
     "少数股东损益": "minority_profit",
     "研发费用": "total_rd",
     "开发支出": "capitalized_rd",
-    "购建固定资产、无形资产和其他长期资产支付的现金": "capex"
+    "购建固定资产、无形资产和其他长期资产支付的现金": "capex",
+    "分配股利、利润或偿付利息支付的现金": "dividends",
+    "支付的其他与筹资活动有关的现金": "repurchases",
+    "第四季度净利润": "q4_net_income",
+    "前三季度净利润": "q1_to_q3_net_income"
 }
 
 # SEC US-GAAP 常见标签映射表
@@ -83,8 +87,11 @@ SEC_TAG_MAP = {
     "LongTermDebtNoncurrent": "debt",
     "LongTermDebt": "debt",
     "ShortTermBorrowings": "short_debt",
-    # 权益
-    "MinorityInterest": "minority_equity"
+    # 权益与分配
+    "MinorityInterest": "minority_equity",
+    "PaymentsOfDividends": "dividends",
+    "PaymentsOfDividendsCommonStock": "dividends",
+    "PaymentsForRepurchaseOfCommonStock": "repurchases"
 }
 
 

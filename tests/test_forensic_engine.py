@@ -191,6 +191,35 @@ def test_vectorized_benchmark():
     print("  ✅ 全量向量化性能基准测试通过！\n")
 
 
+def test_abnormal_payout_and_q4_bath():
+    print("[*] 正在测试长春高新式专项排雷: 业绩滑坡超额分红掏空 + Q4单季突发大洗澡...")
+    # 模拟长春高新式案例:
+    # 1. 前期净利 40亿，当期净利下滑至 5亿 (业绩崩塌滑坡)
+    # 2. 分红 10亿 + 回购 5亿 = 15亿 (占净利 100% > 50%) -> 触发超额分红掏空!
+    # 3. 前三季度盈利 15亿，Q4单季度亏损 10亿 (单季亏损达前三季 66.7% > 50%) -> 触发Q4突发大洗澡!
+    test_case = {
+        "name": "长春高新式测试样本",
+        "sales": 10000000000,
+        "net_income": 500000000,
+        "cfo": 2000000000,
+        "dividends": 1000000000,
+        "repurchases": 500000000,
+        "prev_net_income": 4000000000,
+        "q1_to_q3_net_income": 1500000000,
+        "q4_net_income": -1000000000
+    }
+
+    report = ForensicEvaluator.evaluate_single(test_case)
+    warning_texts = " ".join(report['warnings'])
+    print(f"  ● 命中预警项: {report['warning_count']} 项")
+    for w in report['warnings']:
+        print(f"     👉 {w}")
+    
+    assert "【突击超额分红回购】" in warning_texts, "应成功命中超额分红掏空规则"
+    assert "【Q4突发大洗澡】" in warning_texts, "应成功命中Q4突发大洗澡规则"
+    print("  ✅ 业绩滑坡超额分红与Q4单季突发大洗澡专项测试通过！\n")
+
+
 def main():
     print("=" * 65)
     print("🚀 【Forensic Fraud Engine 核心算法与规则库测试】")
@@ -199,6 +228,7 @@ def main():
     test_altman_z_score()
     test_benfords_law()
     test_single_stock_evaluator()
+    test_abnormal_payout_and_q4_bath()
     test_vectorized_benchmark()
     print("=" * 65)
     print("🎉 【全部测试 100% 顺利通过！】")

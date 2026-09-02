@@ -127,6 +127,9 @@ class ForensicEvaluator:
         total_score += bs_score
         all_warnings.extend(bs_warn)
 
+        if prev and 'prev_net_income' not in curr:
+            curr['prev_net_income'] = prev.get('net_income', 0.0)
+
         is_score, is_warn = check_income_statement_rules(curr)
         total_score += is_score
         all_warnings.extend(is_warn)

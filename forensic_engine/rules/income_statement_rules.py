@@ -62,6 +62,34 @@ def check_income_statement_rules(row: Dict[str, Any]) -> Tuple[int, List[str]]:
             score += 15
             warnings.append(f"【合同资产畸高】合同资产占收入比重达 {ca_ratio*100:.1f}% (${contract_assets/1e6:.1f}M)，警惕提前确认收入与后续大额冲减")
 
+    # 规则 2.7: 业绩滑坡期突击超额分红与股份回购 (长春高新式手法: 暴雷前掏空现金)
+    dividends = float(row.get('dividends') or 0.0)
+    repurchases = float(row.get('repurchases') or 0.0)
+    prev_net_income = float(row.get('prev_net_income') or 0.0)
+    total_payout = dividends + repurchases
+    if net_income > 1e7 and total_payout > 1e7 and prev_net_income > 0:
+        if net_income < prev_net_income:  # 业绩已进入滑坡通道
+            payout_ratio = total_payout / net_income
+            if payout_ratio > 0.50:
+                score += 15
+                warnings.append(
+                    f"【突击超额分红回购】业绩滑坡期分红与回购总额达 ${total_payout/1e6:.1f}M (占当期净利 {payout_ratio*100:.1f}%)，警惕暴雷崩塌前提前掏空真金白银"
+                )
+
+    # 规则 2.8: 第四季度单季突发巨额“大洗澡” (长春高新式手法: Q1-Q3盈利，Q4亏掉大半甚至全年)
+    q4_ni = row.get('q4_net_income')
+    q1_3_ni = row.get('q1_to_q3_net_income')
+    if q4_ni is not None and q1_3_ni is not None:
+        q4_ni = float(q4_ni)
+        q1_3_ni = float(q1_3_ni)
+        if q1_3_ni > 1e7 and q4_ni < -3e7:
+            loss_ratio = abs(q4_ni) / q1_3_ni
+            if loss_ratio > 0.50:
+                score += 20
+                warnings.append(
+                    f"【Q4突发大洗澡】前三季度维持盈利 (${q1_3_ni/1e6:.1f}M)，第四季度单季突发巨亏 (${abs(q4_ni)/1e6:.1f}M，吞噬前三季盈利 {loss_ratio*100:.1f}%)，存在集中洗澡操纵嫌疑"
+                )
+
     return score, warnings
 
 
@@ -83,6 +111,11 @@ def apply_income_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     if 'operating_income' not in df.columns:
         op_inc = net_income
     contract_assets = _get_series(df, 'contract_assets')
+    dividends = _get_series(df, 'dividends')
+    repurchases = _get_series(df, 'repurchases')
+    prev_net_income = _get_series(df, 'prev_net_income')
+    q4_ni = _get_series(df, 'q4_net_income', default=0.0)
+    q1_3_ni = _get_series(df, 'q1_to_q3_net_income', default=0.0)
 
     # 1. 净现比断裂
     cond_cfo_neg = (net_income > 5e7) & (cfo <= 0)
@@ -99,12 +132,23 @@ def apply_income_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     ca_ratio = np.where(sales > 0, contract_assets / sales, 0.0)
     cond_ca_high = (ca_ratio > 0.50) & (contract_assets > 5e7)
 
+    # 5. 规则 2.7: 业绩滑坡期超额分红与回购
+    total_payout = dividends + repurchases
+    payout_ratio = np.where(net_income > 0, total_payout / net_income, 0.0)
+    cond_payout_drain = (net_income > 1e7) & (total_payout > 1e7) & (prev_net_income > 0) & (net_income < prev_net_income) & (payout_ratio > 0.50)
+
+    # 6. 规则 2.8: Q4突发单季巨额大洗澡
+    q4_loss_ratio = np.where(q1_3_ni > 0, np.abs(q4_ni) / q1_3_ni, 0.0)
+    cond_q4_big_bath = (q1_3_ni > 1e7) & (q4_ni < -3e7) & (q4_loss_ratio > 0.50)
+
     is_score = (
         cond_cfo_neg.astype(int) * 25 +
         cond_cfo_weak.astype(int) * 15 +
         cond_op_loss_ni_pos.astype(int) * 20 +
         cond_volume_pumping.astype(int) * 15 +
-        cond_ca_high.astype(int) * 15
+        cond_ca_high.astype(int) * 15 +
+        cond_payout_drain.astype(int) * 15 +
+        cond_q4_big_bath.astype(int) * 20
     )
 
     df['is_fraud_score'] = is_score
@@ -112,5 +156,7 @@ def apply_income_statement_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df['flag_op_loss_masked'] = cond_op_loss_ni_pos
     df['flag_volume_pumping'] = cond_volume_pumping
     df['flag_contract_assets_high'] = cond_ca_high
+    df['flag_payout_drain'] = cond_payout_drain
+    df['flag_q4_big_bath'] = cond_q4_big_bath
 
     return df
