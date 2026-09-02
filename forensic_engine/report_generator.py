@@ -82,7 +82,7 @@ def generate_market_scan_summary_md(
     lines.append("## 🚨 2. 全美股风险最高 TOP 20 极危暴雷黑榜 (Top Distress Watchlist)")
     lines.append("以下公司在数理法务审计中命中多项排雷硬指标，存在系统性虚构收入、破产危机或大洗澡嫌疑：")
     lines.append("")
-    lines.append("| 排名 | CIK | 公司名称 | 最新申报期 | 风险分 | 风险等级 | 排雷诊断结论与核心证据说明 |")
+    lines.append("| 排名 | CIK | 公司名称 | 最新申报期 | 风险分 | 风险等级 | 排雷诊断结论与全部核心实锤证据 (完整呈现) |")
     lines.append("| :---: | :---: | :--- | :---: | :---: | :---: | :--- |")
 
     top20 = df_top_risks.head(20)
@@ -93,12 +93,15 @@ def generate_market_scan_summary_md(
         score = row.get(score_col, 0) if score_col else 0
         level = row.get(level_col, '') if level_col else ''
         diag = row.get(diag_col, '') if diag_col else ''
-        reasons = str(row.get(notes_col, '')) if notes_col else ''
+        raw_reasons = str(row.get(notes_col, '')) if notes_col else ''
         
-        clean_reasons = reasons.replace('\n', '; ').strip('; ')
-        if len(clean_reasons) > 120:
-            clean_reasons = clean_reasons[:117] + "..."
-        desc = f"**{diag}**<br><sub>{clean_reasons}</sub>" if clean_reasons and clean_reasons != 'nan' else f"**{diag}**"
+        # 将各条排雷证据完整分行呈现，绝不中途文字生硬截断
+        if raw_reasons and raw_reasons != 'nan' and raw_reasons.strip():
+            reason_items = [p.strip() for p in raw_reasons.replace('\r', '').split('\n') if p.strip()]
+            reasons_html = "<br>".join(reason_items)
+            desc = f"**{diag}**<br>{reasons_html}"
+        else:
+            desc = f"**{diag}**"
 
         lines.append(f"| {idx} | `{cik}` | **{name}** | `{period}` | **{score}** | {level} | {desc} |")
 
