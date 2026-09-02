@@ -37,5 +37,7 @@ sec_parquet/
 .vscode/
 .idea/
 .DS_Store
-Thumbs.db
 *.log
+*.xlsx
+*.xls
+~$*

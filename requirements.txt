@@ -5,3 +5,4 @@ scipy>=1.10.0
 openpyxl>=3.1.0
 requests>=2.28.0
 tqdm>=4.66.0
+edgartools>=5.55.0

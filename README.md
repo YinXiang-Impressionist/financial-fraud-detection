@@ -1,140 +1,154 @@
 # SEC Financial Lakehouse & Forensic Accounting Alpha Engine 🚀
-### 全美股 8700 万行财务数据湖仓、法务会计排雷审计与量化 Alpha 回测系统
+### 全美股财务数据湖仓、数理法务排雷审计与量化 Alpha 回测系统
 
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![edgar-tools](https://img.shields.io/badge/edgar--tools-5.55%2B-orange.svg)](https://github.com/edgarminers/edgatools)
 [![DuckDB](https://img.shields.io/badge/DuckDB-1.0%2B-yellow.svg)](https://duckdb.org/)
 [![Apache Parquet](https://img.shields.io/badge/Parquet-ZSTD-brightgreen.svg)](https://parquet.apache.org/)
+[![Performance](https://img.shields.io/badge/Speed-280%2C000%20filings%2Fsec-red.svg)](#)
+[![Zero-LLM](https://img.shields.io/badge/Logic-100%25%20Deterministic%20Pure%20Math-purple.svg)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-An ultra-fast, local financial data lakehouse and quantitative forensic accounting engine built on **87,000,000+ factual accounting entries** across **10,730+ US public companies** and **180,000+ SEC 10-K/10-Q filings** (2020Q1 ~ 2026Q2).
+An ultra-fast, local financial data lakehouse and quantitative forensic accounting engine built on **SEC official filings** across **10,000+ US public companies**.
 
-基于美国证券交易委员会（SEC DERA）官方全量财务报表数据集，依托 **DuckDB + ZSTD 列式 Parquet** 现代湖仓架构，实现 **15GB 原始数据秒级压缩至 1.5GB（压缩率超 85%）**，并在 **1 秒内完成全美股 9,000+ 家上市公司的造假排雷审计** 与 **WorldQuant BRAIN 风格量化 Alpha 因子回测**。
+基于美国证券交易委员会（SEC EDGAR & DERA）官方全量财务数据，依托 **edgar-tools + DuckDB + ZSTD Parquet** 现代技术栈，实现：
+1. **在线秒级穿透**：输入任意美股代码（如 `NVDA`），秒级直连 SEC 抽取财报三张表、8-K 重大重述（带时效衰减与科研真值）、10-K 内控缺陷；
+2. **纯数理计量排雷**：彻底摒弃新闻与人事舆情噪音，基于修正琼斯模型（Modified Jones DA）、贝尼斯 Beneish M-Score、奥特曼 Altman Z-Score、Sloan 净应计异象与跨科目统计背离度，提供确定性的“侦探级（Detective）”财务造假排雷评分（0~100 分）；
+3. **极速离线湖仓**：以 **280,000+ 份报表/秒** 的向量化吞吐量，在数秒内完成全美股 18 万份历史申报大排查；
+4. **全自动生命周期管理**：`main.py` 内置智能检测，**已有数据 100% 自动跳过，免重复下载与重复构建**，缺失数据全自动断点补齐。
 
 ---
 
 ## 🌟 核心特性 (Key Features)
 
-1. **⚡ 极速 DuckDB 湖仓引擎**：
-   * 聚合 8700 万行事实表仅需 **0.97 秒**；
-   * 采用零锁表 Parquet 视图架构，告别 SQLite / MySQL 性能瓶颈与 Windows 文件锁死困扰。
-2. **🛡️ 穿透式法务会计排雷系统**：
-   * 融合 Beneish M-Score、净现比断裂、高额商誉悬顶、存贷双高、资不抵债等 8 大审计排雷规则；
-   * 支持全美股最新披露全景扫描与 2020-2026 历年 15 万份报表全量历史回溯排查。
-3. **📈 WorldQuant BRAIN 量化 Alpha 因子与向量化回测**：
-   * 提供 Sloan 应计异象、现金流造血质量、商誉风险等量化因子；
-   * 在美股 2020-2026 面板上实证：**净现比造血因子 Rank IC 高达 +0.3840 (IC IR = 9.94)**，Q1 造假高危组次年资产回报率平均暴跌 **-18.42%**，排雷效果卓越！
-4. **📊 开箱即用的交互 CLI 与 Excel 报告导出**：
-   * 终端彩色审计诊断卡片 + 自动生成全景风险榜单 Excel。
+### 1. 纯数理统计与计量造假侦测 (Detective Statistical Forensic)
+* **拒绝新闻舆情假阳性**：彻底剔除 CFO 离职、常规换所等软性公关新闻，专注于报表底层数字的数学反常；
+* **修正琼斯模型 (Modified Jones Model)**：计量回归剥离正常应计，直接捕捉管理层人为跨期粉饰的可操纵应计残差 $DA$（$DA > 0.08$ 触发预警）；
+* **贝尼斯 8 变量操纵指数 (Beneish M-Score)**：严密追踪 $DSRI, GMI, AQI, SGI, DEPI, SGAI, LVGI, TATA$，突破 $-1.78$ 阈值判定系统性操纵；
+* **奥特曼破产距离 (Altman Z-Score)**：连续度量企业财务危机与违约破产距离（$Z < 1.81$ 红色危机区）；
+* **跨科目统计背离度 (Statistical Decoupling)**：捕捉应收-营收增速严重脱节（$>25\%$）、存货-成本结转背离（$>30\%$）、毛利率逆势走高与存货周转骤降反常背离、净现比恶性断裂。
+
+### 2. 双轨制 8-K 重述 (Item 4.02) 机制
+* **实盘排雷（时效衰减）**：1 年内刚重述扣 **+20分**（连环暴雷敏感期）；1~3 年扣 **+5分**（整改观察期）；超过 3 年历史问题已出清，**0 分（不扣分、不误杀）**；
+* **学术科研（黄金真值）**：无论何时重述，均永久标记 `target_is_restated_fraud = True`，专供多空回测与机器学习模型作为 100% 确凿的 Ground Truth 训练样本。
+
+### 3. 全自动化数据生命周期管理 (`main.py`)
+* `main.py` 统管单票、批量、全市场扫描、回测与下载构建全流程；
+* **智能跳过（Smart Skip）**：若本地已存在完整 DuckDB 湖仓，秒级直接使用，**不产生任何多余网络开销与下载**；
+* **断点续传（Breakpoint Resume）**：每个季度 zip 文件独立校验，已下载完好的季度自动秒级跳过（3000+ 季度/秒），仅下载缺失部分。
+
+### 4. 量化法务会计 Alpha 因子实证回测
+* 提供现金流造血质量、Sloan 应计异象、商誉安全排雷等 WorldQuant BRAIN 风格因子；
+* 全美股回测实证：**净现比造血因子 Rank IC 高达 +0.3840 (IC IR = 9.94)**，Q1 造假高危组次年资产回报率平均暴跌 **-18.42%**。
 
 ---
 
-## 📁 模块架构 (Architecture)
+## 📁 项目工程架构 (Project Structure)
 
 ```text
 sec_financial_lakehouse/
-├── main.py                  # 🚀 一键全能控制台 (搜索 / 单票审计 / 全市场扫描 / 量化回测)
-├── query_sec.py             # 🔍 秒级交互查询工具 (公司搜索 / 三张表拉取 / 自定义 SQL)
-├── us_fraud_detector.py     # 🛡️ 全美股法务会计排雷扫描引擎 (8 大排雷规则 + Beneish 模型)
-├── quant_fraud_backtest.py  # 📈 量化法务会计因子库与向量化截面回测引擎
-├── sec_downloader.py        # 🌐 SEC 官方 2020-2026 数据包流式多线程下载器
-├── sec_to_duckdb.py         # ⚙️ ETL 湖仓构建器 (Zip ➔ ZSTD Parquet ➔ DuckDB Views)
-├── sample_reports/          # 📊 导出的全美股排雷榜单与量化回测绩效 Excel 样例
-├── requirements.txt         # 📦 依赖项清单
-└── LICENSE                  # 📄 MIT 开源许可证
+│
+├── main.py                            # 🚀 一键全能控制台 (在线单票排雷 / 股票池批量体检 / 离线全市场大扫描)
+├── requirements.txt                   # 📦 Python 依赖环境清单 (含 edgartools, duckdb 等)
+├── README.md                          # 📖 项目介绍与快速上手指南
+├── FORENSIC_SCORING_METHODOLOGY.md   # 🏛️ 法务排雷评分与数理统计模型白皮书
+├── LICENSE                            # 📄 MIT 开源许可证
+├── .gitignore                         # 🙈 Git 忽略配置 (自动排除大型数据集与临时 Excel)
+│
+├── forensic_engine/                   # 🧠 [核心] 纯代码法务排雷算法与计量模型
+│   ├── evaluator.py                   # 综合评分与四级风险等级判定总控
+│   ├── tag_mapping.py                 # 统一会计科目映射 (US-GAAP / IFRS / A股)
+│   ├── models/                        # 纯数理统计模型 (Beneish, Modified Jones, Altman, Benford, Decoupling)
+│   └── rules/                         # 三张表穿透规则 (资产负债表, 利润表, 现金流量表, 8-K重述)
+│
+├── pipelines/                         # 🌐 [数据通道] 统一数据获取引擎
+│   ├── edgar_pipeline.py              # 基于 edgar-tools 的 SEC 在线秒级多维穿透抽取
+│   └── lakehouse/                     # [可选] 离线 DuckDB 大数据湖仓构建模块
+│       ├── sec_downloader.py          # DERA 批量数据包下载器 (带完整性校验与断点跳过)
+│       ├── sec_to_duckdb.py           # DuckDB 湖仓建表与 Parquet 转换
+│       ├── query_sec.py               # 湖仓本地 SQL 检索
+│       └── us_fraud_detector.py       # 湖仓批量向量化排雷
+│
+├── backtest/                          # 📈 [量化研究] Alpha 因子回测引擎
+│   └── quant_fraud_backtest.py        # 6 大法务会计因子多空绩效回测
+│
+├── tests/                             # 🧪 [测试套件] 自动化测试与性能基准压测
+│   ├── test_forensic_engine.py        # 核心算法与 10,000 条报表向量化性能压测 (28万份/秒)
+│   └── test_edgar_pipeline.py         # 真实美股在线穿透测试 (NVDA, AAPL)
+│
+└── sample_reports/                    # 📊 导出的全美股排雷榜单与自选股诊断 Excel 样例
 ```
 
 ---
 
 ## 🛠️ 快速开始 (Quick Start)
 
-### 1. 安装依赖 (Installation)
+### 1. 安装依赖环境
 ```bash
-git clone <your-github-repo-url>
+git clone <your-repo-url>
 cd sec_financial_lakehouse
 pip install -r requirements.txt
 ```
 
-### 2. 构建本地数据湖仓 (Build Lakehouse)
-> 如果您需要从 SEC 官方自动同步 2020-2026 全量 26 个季度数据：
+### 2. 在线单票多维深度排雷 (即刻执行，无需本地大数据库)
+秒级直连 SEC 官方，抓取最新连续两期财报、8-K 重大重述与内控审查，并运行纯数理模型打分：
 ```bash
-# 1. 批量下载 SEC 2020-2026 官方 zip 数据集
-python sec_downloader.py
-
-# 2. 一键转换为 ZSTD Parquet 分区表并挂载 DuckDB
-python sec_to_duckdb.py
+python main.py --ticker NVDA
+# 或
+python main.py --ticker TSLA
 ```
 
----
-
-## 💻 常用命令指南 (Usage Examples)
-
-### ① 一键式主程序 (`main.py`)
+### 3. 自选股股票池批量在线排雷并导出 Excel
+一键排查一组自选股，自动评估打分并生成结构化 Excel 排雷榜单：
 ```bash
-# 1. 模糊搜索美股公司
-python main.py --search 'Tesla'
+python main.py --batch "AAPL,NVDA,TSLA,MSFT,BABA" --output "./我的自选股法务排雷榜单.xlsx"
+```
 
-# 2. 单票深度法务会计审计 (输出终端诊断卡片)
-python main.py --company 'NVIDIA'
+### 4. 本地数据湖仓管理 (全自动检测，已有数据智能跳过)
+```bash
+# 检查本地湖仓完整性与数据行数
+python main.py --check-data
 
-# 3. 全美股 9,079 家公司最新一期财报排雷扫描 (仅需 1 秒)
+# 批量下载/补齐 SEC 官方历史报表数据 (已存在的文件秒级自动跳过)
+python main.py --download
+
+# 将已下载 zip 转换为 Parquet 并挂载 DuckDB 视图
+python main.py --build
+```
+
+### 5. 全美股全市场排雷大扫描 (自动调度湖仓)
+系统自动检查本地数据，**若已有完整数据直接使用，无需重复下载**；若未就绪将全自动触发整备：
+```bash
+# 全美股所有公司最新一期报表秒级大扫描 (输出 Top 风险排行并保存 Excel)
 python main.py --scan
 
-# 4. 2020-2026 历年 155,000+ 份财报全量历史大排查
+# 2020-2026 历年全部 18 万份历史申报记录全量大排查
 python main.py --scan --all-years
+```
 
-# 5. 启动 6 大法务会计量化 Alpha 因子全市场回测
+### 6. 法务会计量化 Alpha 因子全市场回测
+```bash
 python main.py --backtest
 ```
 
----
-
-### ② 极速查询与 SQL 分析 (`query_sec.py`)
+### 7. 运行自动化测试套件
 ```bash
-# 查询指定公司的财务三张表指标 (营收、净利润、总资产、现金流、商誉等)
-python query_sec.py --company "APPLE"
+# 验证核心算法精度与 10,000 份报表向量化基准压测
+python tests/test_forensic_engine.py
 
-# 执行自定义 DuckDB SQL 分析 (如统计 2025 年营收最高的 10 家美股巨头)
-python query_sec.py --sql "SELECT name, fy, max(value)/1e9 as rev_billion FROM sub s JOIN num n ON s.adsh=n.adsh WHERE n.tag='Revenues' AND s.fy='2025' GROUP BY name, fy ORDER BY rev_billion DESC LIMIT 10;"
+# 验证 SEC 官方接口与真实股票在线抓取
+python tests/test_edgar_pipeline.py AAPL
 ```
 
 ---
 
-### ③ 量化因子回测绩效 (`quant_fraud_backtest.py`)
-```bash
-python quant_fraud_backtest.py
-```
+## 🏛️ 详细评分逻辑与技术白皮书
 
-#### 📊 2020-2026 美股全市场回测绩效实证：
-
-| 因子名称 | 平均 Rank IC | IC IR (信息比率) | 多空年化超额收益 | 夏普比率 (Sharpe) | 排雷与多空实证效果 |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **1. 净现比造血质量因子 (`factor_cfo_quality`)** | **+0.3840** | **9.94** | **+24.05%** | **20.38** | **🔥 极强单调性**：Q1 (现金流断裂高危组) 次年收益为 **-18.42%**，做空/剔除效果极其显著！ |
-| **2. 综合法务会计复合 Alpha (`alpha_composite_forensic`)** | **+0.0615** | **1.32** | **+1.90%** | **1.00** | 综合得分最低组显著跑输市场。 |
-| **3. 存贷双高异常排雷因子 (`factor_cash_debt_spread`)** | **-0.1383** | **-19.68** | **+0.82%** | **1.04** | 识别虚构资金与高负债吞噬利润。 |
-| **4. 商誉安全排雷因子 (`factor_goodwill_safety`)** | **-0.2395** | **-41.46** | -7.49% | -6.03 | 高商誉组在后续年份面临资产减值业绩变脸。 |
+完整的数学公式推导、变量定义、扣分细则与实证依据，请参阅技术白皮书：
+👉 [**`FORENSIC_SCORING_METHODOLOGY.md`**](FORENSIC_SCORING_METHODOLOGY.md)
 
 ---
 
-## 🧠 WorldQuant BRAIN Alpha 表达式对照
+## 📄 许可协议 (License)
 
-可在 WorldQuant BRAIN / FastExpr 平台直接仿真的官方语法表达式：
-
-```text
-# 1. 净现比与现金流自洽度 Alpha
-group_neutralize(rank(cfo / (abs(net_income) + 1e-4)) + 2.0 * rank(cfo / assets), subindustry)
-
-# 2. Sloan 净应计利润异象 Alpha
--1.0 * group_neutralize(rank((net_income - cfo) / assets), sector)
-
-# 3. 贝尼斯 DSRI 应收账款膨胀排雷 Alpha
--1.0 * rank((receivables / (sales + 1e-4)) / (ts_delay(receivables, 252) / (ts_delay(sales, 252) + 1e-4)))
-
-# 4. 高额商誉风险暴露 Alpha
--1.0 * group_neutralize(rank(goodwill / (equity + 1e-4)), subindustry)
-```
-
----
-
-## 📜 许可证 (License)
-
-本项目基于 [MIT License](LICENSE) 开源。
+本项目采用 [MIT 许可证](LICENSE) 开源。

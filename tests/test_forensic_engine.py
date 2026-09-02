@@ -4,8 +4,14 @@ Forensic Financial Fraud Detection Engine Unit Tests & Performance Benchmark
 法务会计与财报排雷 Python 引擎测试与性能基准验证
 """
 
+import os
 import sys
 import time
+
+# 保证当前项目根目录在 sys.path 中
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 if sys.platform.startswith('win'):
     try:

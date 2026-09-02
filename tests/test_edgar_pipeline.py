@@ -4,8 +4,14 @@ EDGAR Pipeline & Multi-Source Forensic Audit Test Script
 测试基于 edgar-tools 的新一代数据抽取与立体排雷审计全流程 (AAPL / NVDA 实战测试)
 """
 
+import os
 import sys
 import time
+
+# 保证当前项目根目录在 sys.path 中
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 # 保证 Windows 控制台 UTF-8 输出
 if sys.platform.startswith('win'):
@@ -14,7 +20,7 @@ if sys.platform.startswith('win'):
     except Exception:
         pass
 
-from edgar_pipeline import EdgarPipeline
+from pipelines import EdgarPipeline
 from forensic_engine import ForensicEvaluator
 
 

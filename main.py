@@ -1,11 +1,19 @@
 # -*- coding: utf-8 -*-
 """
 SEC 美股财务数据分析与法务排雷一键式主程序 (All-in-One US Stock Platform)
-全面升级支持基于 edgar-tools 的在线秒级多维法务穿透审计与全市场 DuckDB 湖仓秒级扫描：
-1. 单票全景审计：输入股票代码 (如 NVDA)，秒级直连 SEC 抽取财报三张表 + 8-K重述换所 + Form 4大股东抛售 + 10-K内控缺陷
-2. 批量股票池审计：一键批量排查自选股 (如 --batch "AAPL,NVDA,TSLA,BABA") 并导出 Excel 诊断榜单
-3. 全市场全量扫雷：基于 DuckDB 湖仓秒级向量化扫描数万家上市公司历史申报记录
-4. 量化因子回测：6 大法务会计量化因子全市场多空收益回测
+承担全生命周期完整任务 (全自动数据获取、断点续传、按需智能跳过、在线/离线双模排雷、量化回测)：
+
+1. 在线秒级审计:
+   - 单票多维法务体检: python main.py --ticker NVDA
+   - 自选股池批量体检: python main.py --batch "AAPL,NVDA,TSLA,BABA"
+2. 完整数据生命周期管理 (智能跳过已存在数据):
+   - 检查本地湖仓完整性: python main.py --check-data
+   - 一键下载缺失数据包: python main.py --download (已下载文件自动跳过，断点续传)
+   - 一键构建 DuckDB 湖仓: python main.py --build (已转换 Parquet 自动跳过)
+3. 全市场离线排雷与量化研究 (自动检测本地数据，若已有完整数据直接使用，若缺失自动触发整备):
+   - 全美股最新财年扫描: python main.py --scan
+   - 2020-2026 历年大排查: python main.py --scan --all-years
+   - 6 大法务因子回测:   python main.py --backtest
 """
 
 import os
@@ -20,9 +28,80 @@ if sys.platform.startswith('win'):
     except Exception:
         pass
 
-from edgar_pipeline import EdgarPipeline
+from pipelines import EdgarPipeline
 from forensic_engine import ForensicEvaluator
-from us_fraud_detector import USStockFraudDetector, safe_save_excel
+from pipelines.lakehouse import (
+    SecDeraDownloader,
+    SecToDuckDBPipeline,
+    SecQueryEngine,
+    USStockFraudDetector,
+    safe_save_excel
+)
+
+
+def check_lakehouse_ready(db_path: str) -> tuple:
+    """
+    检查本地 DuckDB 湖仓完整性
+    返回: (is_ready: bool, status_message: str, row_count: int)
+    """
+    if not os.path.exists(db_path):
+        return False, "未找到数据库文件", 0
+    try:
+        import duckdb
+        con = duckdb.connect(db_path, read_only=True)
+        tables = [t[0] for t in con.execute("SHOW TABLES").fetchall()]
+        if 'sub' not in tables or 'num' not in tables:
+            con.close()
+            return False, "数据库表结构不完整 (缺失 sub/num 视图)", 0
+        
+        # 验证底层视图数据是否可读取 (排查 Parquet 路径断链)
+        row = con.execute("SELECT count(*) FROM sub").fetchone()
+        con.close()
+        if row and row[0] > 0:
+            return True, f"数据完整 (挂载 {row[0]:,} 份财报申报记录)", row[0]
+        return False, "数据库记录数为空", 0
+    except Exception as e:
+        return False, f"底层 Parquet 数据缺失或读取异常: {e}", 0
+
+
+def ensure_lakehouse_ready(
+    db_path: str = "./sec_financials.duckdb",
+    zips_dir: str = "./sec_zips",
+    parquet_dir: str = "./sec_parquet",
+    start_year: int = 2020,
+    end_year: int = 2026,
+    force_download: bool = False
+) -> bool:
+    """
+    全自动保证本地湖仓可用：
+    1. 若已有完整数据，智能跳过下载与构建，秒级直接使用；
+    2. 若缺失数据，自动启动断点续传下载与 Parquet 湖仓构建。
+    """
+    ready, msg, _ = check_lakehouse_ready(db_path)
+    if ready and not force_download:
+        print(f"[+] 湖仓就绪检查通过: {msg}")
+        print("[+] 检测到本地已存在完整数据，自动跳过下载与构建，直接执行分析任务！\n")
+        return True
+
+    print(f"\n[*] 检查本地数据状态: {msg}")
+    print("[*] 正在为您全自动整备全市场历史数据 (已有季度文件自动跳过，无需重复下载)...")
+
+    # 1. 检查并下载 SEC DERA 原始数据包
+    downloader = SecDeraDownloader(download_dir=zips_dir, start_year=start_year, end_year=end_year)
+    downloader.run()
+
+    # 2. 转换为 ZSTD Parquet 并挂载 DuckDB 视图
+    builder = SecToDuckDBPipeline(zips_dir=zips_dir, parquet_dir=parquet_dir, db_path=db_path)
+    builder.run()
+
+    # 最终验证
+    ready_after, msg_after, _ = check_lakehouse_ready(db_path)
+    if ready_after:
+        print(f"\n🎉 本地湖仓全自动整备完毕: {msg_after}\n")
+        return True
+    else:
+        print(f"\n[-] 湖仓整备失败: {msg_after}。请检查网络或日志。\n")
+        return False
 
 
 def audit_single_ticker_online(ticker: str) -> dict:
@@ -85,15 +164,12 @@ def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选�
                 "综合风险评分": res.get('total_risk_score'),
                 "风险等级": res.get('risk_level'),
                 "命中风险项数": res.get('warning_count'),
+                "Beneish_M分值": res.get('beneish_m_score'),
+                "琼斯DA可操纵应计": res.get('discretionary_accruals'),
                 "Altman_Z分值": res.get('altman_z'),
                 "Sloan净应计": res.get('sloan_accrual'),
                 "8K重大重述": "是" if res.get('has_item_402_restatement') else "否",
-                "重述时效等级": res.get('restatement_info', {}).get('restatement_time_tier', '无'),
                 "科研真值标签_历史造假": res.get('target_is_restated_fraud', False),
-                "8K突发换所": "是" if res.get('accountant_changed_8k') else "否",
-                "8K高管辞职": "是" if res.get('officer_departure_8k') else "否",
-                "内部人净套现_百万美元": round(res.get('insider_net_sell_val', 0)/1e6, 2),
-                "内控缺陷Status": res.get('control_info', {}).get('internal_control_status', '正常'),
                 "营业收入_百万美元": round(res.get('sales', 0)/1e6, 2),
                 "净利润_百万美元": round(res.get('net_income', 0)/1e6, 2),
                 "经营现金流_百万美元": round(res.get('cfo', 0)/1e6, 2),
@@ -111,18 +187,32 @@ def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选�
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SEC 美股财务数据分析与法务排雷一键式主程序")
+    parser = argparse.ArgumentParser(description="SEC 美股财务数据分析与法务排雷一键式全功能主程序")
+    
+    # 在线实时审计参数
     parser.add_argument("--ticker", "--company", dest="ticker", type=str, default="", help="在线单票多维深度排雷，如: --ticker NVDA 或 AAPL")
     parser.add_argument("--batch", type=str, default="", help="批量排查逗号分隔的股票列表，如: --batch 'AAPL,NVDA,TSLA,BABA'")
+    
+    # 湖仓数据管理与生命周期参数 (支持已有数据自动跳过)
+    parser.add_argument("--check-data", action="store_true", help="检查本地 DuckDB 湖仓的数据完整性与状态")
+    parser.add_argument("--download", action="store_true", help="批量下载/补齐 SEC DERA 历史报表数据 (已存在的文件自动跳过)")
+    parser.add_argument("--build", action="store_true", help="将已下载的 zip 转换为 Parquet 并构建 DuckDB 湖仓视图")
+    parser.add_argument("--zips-dir", type=str, default="./sec_zips", help="原始 zip 数据集存放目录")
+    parser.add_argument("--parquet-dir", type=str, default="./sec_parquet", help="Parquet 湖仓存储目录")
+    parser.add_argument("--start-year", type=int, default=2020, help="下载与构建的起始年份 (默认 2020)")
+    parser.add_argument("--end-year", type=int, default=2026, help="下载与构建的结束年份 (默认 2026)")
+    
+    # 离线批量扫描与量化因子回测参数
     parser.add_argument("--db", type=str, default="./sec_financials.duckdb", help="DuckDB 数据库路径")
-    parser.add_argument("--scan", action="store_true", help="全量扫描美股上万家公司的造假与粉饰风险 (需要本地 DuckDB 湖仓)")
+    parser.add_argument("--scan", action="store_true", help="全量扫描美股数万家上市公司的造假风险 (自动检测本地数据)")
     parser.add_argument("--all-years", action="store_true", help="全量扫描 2020-2026 历年全部 18 万份历史申报记录")
-    parser.add_argument("--backtest", action="store_true", help="运行 6 大法务会计量化因子全市场回测")
+    parser.add_argument("--backtest", action="store_true", help="运行 6 大法务会计量化因子全市场回测 (自动检测本地数据)")
     parser.add_argument("--fy", type=str, default="", help="指定目标财年过滤，如: 2025")
     parser.add_argument("--output", type=str, default="./美股上市公司财报造假风险扫描榜单.xlsx", help="导出报告路径")
+    
     args = parser.parse_args()
 
-    # 1. 在线单票多维审计 (秒级直连 SEC，无需本地巨大数据库)
+    # 1. 在线单票多维审计 (秒级直连 SEC，无需本地海量历史数据)
     if args.ticker:
         audit_single_ticker_online(args.ticker)
         return
@@ -133,17 +223,48 @@ def main():
         audit_batch_tickers(tickers, output_report=args.output)
         return
 
-    # 3. 本地 DuckDB 湖仓回测与全市场扫描模式
+    # 3. 显式检查本地数据完整性
+    if args.check_data:
+        ready, msg, count = check_lakehouse_ready(args.db)
+        print("\n" + "=" * 65)
+        print("🔍 【本地 SEC 数据湖仓完整性检查报告】")
+        print("=" * 65)
+        print(f"● 数据库文件路径: {os.path.abspath(args.db)}")
+        print(f"● 湖仓就绪状态  : {'✅ 完整可用' if ready else '❌ 尚未就绪'}")
+        print(f"● 状态详细说明  : {msg}")
+        if ready:
+            print(f"● 总财报申报数  : {count:,} 份")
+        print("=" * 65 + "\n")
+        return
+
+    # 4. 显式单步下载任务 (已有文件自动跳过，断点续传)
+    if args.download:
+        downloader = SecDeraDownloader(download_dir=args.zips_dir, start_year=args.start_year, end_year=args.end_year)
+        downloader.run()
+        return
+
+    # 5. 显式单步构建湖仓任务
+    if args.build:
+        builder = SecToDuckDBPipeline(zips_dir=args.zips_dir, parquet_dir=args.parquet_dir, db_path=args.db)
+        builder.run()
+        return
+
+    # 6. 本地全市场大扫描或因子回测 (全自动保证数据可用，已有数据免下载)
     if args.scan or args.all_years or args.backtest:
-        if not os.path.exists(args.db):
-            print(f"[-] 未找到本地数据库文件: {args.db}！\n    若需全市场离线扫描，请先运行 sec_downloader.py 与 sec_to_duckdb.py。\n    若需审计单票，请直接运行: python main.py --ticker NVDA")
+        if not ensure_lakehouse_ready(
+            db_path=args.db,
+            zips_dir=args.zips_dir,
+            parquet_dir=args.parquet_dir,
+            start_year=args.start_year,
+            end_year=args.end_year
+        ):
             return
-        
-        detector = USStockFraudDetector(db_path=args.db, output_report=args.output)
+
         if args.scan or args.all_years:
+            detector = USStockFraudDetector(db_path=args.db, output_report=args.output)
             detector.scan_all_stocks(fy=args.fy, all_years=args.all_years, output_report=args.output)
         elif args.backtest:
-            from quant_fraud_backtest import ForensicFactorEngine, FactorBacktester
+            from backtest import ForensicFactorEngine, FactorBacktester
             factor_engine = ForensicFactorEngine(db_path=args.db)
             panel = factor_engine.build_factor_panel()
             backtester = FactorBacktester(panel)
@@ -157,15 +278,18 @@ def main():
                 backtester.run_backtest(factor_col=f_col, factor_name=f_name)
         return
 
-    # 默认模式：展示帮助并对英伟达执行一次完整在线排雷演示
+    # 7. 默认无参提示与演示
     print("\n" + "=" * 70)
     print("🌟 【SEC 美股立体法务会计与财报排雷系统 (0 LLM 纯代码极速引擎)】")
     print("=" * 70)
     print("常用命令指南:")
-    print("  1. 在线单票多维审计:  python main.py --ticker NVDA")
-    print("  2. 在线批量股票池体检: python main.py --batch 'AAPL,NVDA,TSLA,BABA'")
-    print("  3. 本地湖仓全市场大扫描: python main.py --scan")
-    print("  4. 历年全量大排查:     python main.py --scan --all-years")
+    print("  1. 在线单票多维审计:    python main.py --ticker NVDA")
+    print("  2. 在线批量股票池体检:   python main.py --batch 'AAPL,NVDA,TSLA,BABA'")
+    print("  3. 检查本地湖仓完整性:   python main.py --check-data")
+    print("  4. 下载/补齐全市场数据:  python main.py --download (已有数据自动跳过)")
+    print("  5. 本地湖仓全市场大扫描: python main.py --scan (自动检测数据，无数据自建)")
+    print("  6. 2020-2026全量大排查: python main.py --scan --all-years")
+    print("  7. 法务会计量化因子回测: python main.py --backtest")
     print("=" * 70)
     print("[*] 正在执行默认演示 (NVDA 在线多维立体法务排雷)...")
     audit_single_ticker_online("NVDA")
