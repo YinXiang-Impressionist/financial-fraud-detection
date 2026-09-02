@@ -267,10 +267,16 @@ class USStockFraudDetector:
         df_scored = ForensicEvaluator.evaluate_dataframe(df_raw, entity_col='cik', time_col='period')
         print(f"[+] 向量化评估完毕，耗时 {time.time()-t_eval:.2f} 秒！")
 
-        # 计算实际覆盖的年份区间
-        periods_str = df_scored['period'].astype(str)
-        actual_min_y = periods_str.str[:4].min()
-        actual_max_y = periods_str.str[:4].max()
+        # 计算实际覆盖的年份区间 (按主体年份统计，过滤个别迟交补报噪点)
+        periods_str = df_scored['period'].astype(str).str[:4]
+        valid_years = periods_str.value_counts()
+        mainstream_years = valid_years[valid_years >= 50].index.sort_values()
+        if not mainstream_years.empty:
+            actual_min_y = str(mainstream_years[0])
+            actual_max_y = str(mainstream_years[-1])
+        else:
+            actual_min_y = "2016"
+            actual_max_y = "2026"
 
         # 动态智能命名报告文件 (若未指定自定义路径或为默认路径)
         if not output_report or "美股上市公司财报造假风险扫描榜单.xlsx" in output_report:

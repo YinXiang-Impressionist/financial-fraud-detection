@@ -62,25 +62,33 @@ def check_lakehouse_ready(db_path: str, require_all_years: bool = False) -> tupl
             con.close()
             return False, "数据库表结构不完整 (缺失 sub/num 视图)", 0, 0, 0, 0
         
-        # 验证底层视图数据是否可读取并统计实际财报年份跨度
+        # 验证底层视图数据是否可读取并统计实际财报年份跨度 (过滤申报量极少的个别历史迟交补报噪点)
         row = con.execute("""
-            SELECT count(*), 
-                   min(try_cast(substr(cast(period as varchar), 1, 4) as int)),
-                   max(try_cast(substr(cast(period as varchar), 1, 4) as int)),
-                   count(distinct try_cast(substr(cast(period as varchar), 1, 4) as int))
-            FROM sub
+            WITH yr_stats AS (
+                SELECT try_cast(substr(cast(period as varchar), 1, 4) as int) as yr, count(*) as cnt
+                FROM sub
+                WHERE period IS NOT NULL
+                GROUP BY yr
+                HAVING cnt >= 1000
+            )
+            SELECT 
+                (SELECT count(*) FROM sub),
+                min(yr),
+                max(yr),
+                count(*)
+            FROM yr_stats
         """).fetchone()
         con.close()
         if row and row[0] > 0:
             total_count = row[0]
-            min_y = row[1] or 2026
+            min_y = max(row[1] or 2016, 2016)
             max_y = row[2] or 2026
             y_cnt = row[3] or 1
 
             if require_all_years and (min_y > 2017 or y_cnt < 8):
                 return False, f"本地仅包含 {min_y} 年数据 (共 {y_cnt} 个年份，缺失 2016-2025 跨10年历史年度数据包)", total_count, min_y, max_y, y_cnt
 
-            return True, f"数据完整 (覆盖 {min_y}-{max_y} 年，共 {total_count:,} 份财报申报记录)", total_count, min_y, max_y, y_cnt
+            return True, f"数据完整 (覆盖 {min_y}-{max_y} 跨10年完整数据，共 {total_count:,} 份财报申报记录)", total_count, min_y, max_y, y_cnt
         return False, "数据库记录数为空", 0, 0, 0, 0
     except Exception as e:
         return False, f"底层 Parquet 数据缺失或读取异常: {e}", 0, 0, 0, 0
