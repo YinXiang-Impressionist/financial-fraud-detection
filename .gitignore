@@ -33,7 +33,7 @@ sec_parquet/
 *.zip
 2026q2/
 
-# IDE / OS
+# IDE / OS / Agent Local Rules
 .vscode/
 .idea/
 .DS_Store
@@ -41,3 +41,5 @@ sec_parquet/
 *.xlsx
 *.xls
 ~$*
+AGENTS.md
+.agents/
