@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-SEC DERA 财务报表数据集 (2020Q1 ~ 2026Q2) 批量自动化下载工具
+SEC DERA 财务报表数据集 (2016Q1 ~ 2026Q2 跨10年完整历史数据集) 批量自动化下载工具
 """
 
 import os
@@ -25,7 +25,7 @@ SEC_HEADERS = {
 
 
 class SecDeraDownloader:
-    def __init__(self, download_dir="./sec_zips", start_year=2020, end_year=2026):
+    def __init__(self, download_dir="./sec_zips", start_year=2016, end_year=2026):
         self.download_dir = os.path.abspath(download_dir)
         self.start_year = start_year
         self.end_year = end_year
@@ -33,7 +33,7 @@ class SecDeraDownloader:
         self.base_url = "https://www.sec.gov/files/dera/data/financial-statement-data-sets"
 
     def get_quarter_list(self):
-        """生成 2020Q1 到 2026Q2 的季度清单"""
+        """生成 2016Q1 到 2026Q2 的季度清单 (跨10年完整历史区间)"""
         quarters = []
         for y in range(self.start_year, self.end_year + 1):
             max_q = 2 if y == 2026 else 4

@@ -38,7 +38,7 @@ class ForensicFactorEngine:
         t0 = time.time()
         con = duckdb.connect(self.db_path, read_only=True)
 
-        # 提取 2020-2026 历年 10-K 年报数据
+        # 提取 2016-2026 历年 10-K 年报数据 (跨10年完整面板)
         sql = """
             WITH raw_panel AS (
                 SELECT 
@@ -59,7 +59,7 @@ class ForensicFactorEngine:
                     MAX(CASE WHEN n.tag IN ('LongTermDebtNoncurrent', 'LongTermDebt', 'ShortTermBorrowings') THEN n.value END) AS debt
                 FROM sub s
                 JOIN num n ON s.adsh = n.adsh
-                WHERE s.form = '10-K' AND s.fy >= '2020' AND s.fy <= '2026'
+                WHERE s.form = '10-K' AND s.fy >= '2016' AND s.fy <= '2026'
                 GROUP BY s.cik, s.name, s.period, s.fy, s.quarter
             )
             SELECT * FROM raw_panel

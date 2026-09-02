@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 SEC 财务报表数据转换与 DuckDB 湖仓构建工具
-将 2020-2026 的 26 个季度 zip 包转换为 ZSTD 压缩 Parquet 分区表，并挂载为 DuckDB 统一视图。
+将 2016-2026 跨 10 年完整的 42 个季度 zip 包转换为 ZSTD 压缩 Parquet 分区表，并挂载为 DuckDB 统一视图。
 """
 
 import os

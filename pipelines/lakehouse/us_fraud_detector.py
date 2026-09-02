@@ -37,7 +37,7 @@ def generate_report_filename(prefix: str = "美股上市公司财报排雷榜单
         else:
             return f"{prefix}_{actual_min_y}-{actual_max_y}历年全景_{now_str}.xlsx"
     elif all_years or (fy and fy.lower() == 'all'):
-        return f"{prefix}_2020-2026历年全景_{now_str}.xlsx"
+        return f"{prefix}_2016-2026历年全景_10年完整数据_{now_str}.xlsx"
     elif fy:
         return f"{prefix}_{fy}财年_{now_str}.xlsx"
     else:
@@ -173,7 +173,7 @@ class USStockFraudDetector:
         """使用 DuckDB + ForensicEvaluator 向量化引擎秒级全量扫描美股数万家公司"""
         self._ensure_db()
         out_file = output_report or self.output_report
-        mode_desc = "2020-2026 历年所有申报记录 (全量历史)" if all_years or fy.lower() == 'all' else (f"{fy} 财年数据" if fy else "全美股所有公司最新披露数据")
+        mode_desc = "2016-2026 历年所有申报记录 (跨10年完整历史数据)" if all_years or fy.lower() == 'all' else (f"{fy} 财年数据" if fy else "全美股所有公司最新披露数据")
         
         print("\n" + "=" * 70)
         print(f"[*] 启动 DuckDB + ForensicEvaluator 极速向量化扫描引擎...")
@@ -410,7 +410,7 @@ def main():
     parser.add_argument("--output", type=str, default="./美股上市公司财报造假风险扫描榜单.xlsx", help="美股输出风险报告路径")
     parser.add_argument("--company", "--ticker", dest="company", type=str, default="", help="审计单只美股公司，如: --company 'APPLE' 或 --company 'TESLA'")
     parser.add_argument("--scan", action="store_true", help="全量扫描美股上万家公司的造假与粉饰风险 (DuckDB 秒级引擎)")
-    parser.add_argument("--all-years", action="store_true", help="全量扫描 2020-2026 历年全部 18 万份历史申报记录")
+    parser.add_argument("--all-years", action="store_true", help="全量扫描 2016-2026 历年跨 10 年全部历史申报记录")
     parser.add_argument("--fy", type=str, default="", help="目标财年过滤，如: 2025、2024、或留空默认最新")
     parser.add_argument("--form", type=str, default="", help="报表类型过滤，如 10-K 或 10-Q，留空默认全部")
     args = parser.parse_args()
