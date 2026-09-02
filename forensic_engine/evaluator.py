@@ -148,12 +148,18 @@ class ForensicEvaluator:
         final_score = min(100, total_score)
         if final_score >= 50:
             risk_level = "[极危] 红色高危"
+            diag_summary = "【极危】存在重大系统性财务操纵与现金流背离，破产或爆雷风险极大"
         elif final_score >= 30:
             risk_level = "[预警] 橙色关注"
+            diag_summary = "【预警】多项关键财务勾稽指标显著异化，存在较强人为粉饰或资产虚胖嫌疑"
         elif final_score >= 15:
             risk_level = "[提示] 黄色提示"
+            diag_summary = "【提示】财务指标出现轻度异常或处于观察期，建议持续跟踪"
         else:
             risk_level = "[稳健] 绿色正常"
+            diag_summary = "【稳健】财务三张表勾稽严密稳健，各项计量排雷模型均处于安全区间"
+
+        notes_str = "\n".join([f"{i+1}. {w}" for i, w in enumerate(all_warnings)]) if all_warnings else "✅ 财务勾稽严密，未命中任何系统性财务造假与粉饰红旗。"
 
         return {
             "entity": curr.get('cik') or curr.get('code') or curr.get('symbol') or curr.get('name') or "Unknown",
@@ -161,6 +167,8 @@ class ForensicEvaluator:
             "period": curr.get('period', ''),
             "total_risk_score": final_score,
             "risk_level": risk_level,
+            "diagnostic_summary": diag_summary,
+            "risk_reasons_notes": notes_str,
             "warning_count": len(all_warnings),
             "warnings": all_warnings,
             "altman_z": altman_res.get('z_score'),
@@ -215,24 +223,49 @@ class ForensicEvaluator:
             )
         )
 
-        flag_cols = [
-            ('flag_negative_equity', '资不抵债'),
-            ('flag_cash_debt_anomaly', '存贷双高'),
-            ('flag_goodwill_burden', '商誉悬顶'),
-            ('flag_ar_anomaly', '应收畸高'),
-            ('flag_inv_overhang', '存货积压'),
-            ('flag_cip_anomaly', '工程挂账'),
-            ('flag_cfo_broken', '净现比断裂'),
-            ('flag_op_loss_masked', '主营亏损掩盖'),
-            ('altman_is_distressed', 'Altman破产危机'),
-            ('sloan_is_high', '高应计无现金'),
-            ('beneish_is_manipulator', 'Beneish操纵高危')
+        df_norm['diagnostic_summary'] = np.where(
+            total_score >= 50,
+            "【极危】存在重大系统性财务操纵与现金流背离，破产或爆雷风险极大",
+            np.where(
+                total_score >= 30,
+                "【预警】多项关键财务勾稽指标显著异化，存在较强人为粉饰或资产虚胖嫌疑",
+                np.where(
+                    total_score >= 15,
+                    "【提示】财务指标出现轻度异常或处于观察期，建议持续跟踪",
+                    "【稳健】财务三张表勾稽严密稳健，各项计量排雷模型均处于安全区间"
+                )
+            )
+        )
+
+        flag_details = [
+            ('beneish_is_manipulator', "❌【Beneish模型操纵高危】8变量M-Score突破-1.78警戒阈值，涉嫌系统性虚构收入与毛利跨期操纵"),
+            ('altman_is_distressed', "❌【Altman破产危机】Z-Score落入红色危机区(<1.81)，陷入深重财务困境，造假动机迫切"),
+            ('sloan_is_high', "❌【Sloan高应计异象】应计利润占总资产比重超10%，账面富贵缺乏真实真金白银现金流支撑"),
+            ('flag_cfo_broken', "❌【净现比严重恶化断裂】净利润盈利但经营现金流大额净流出，盈利质量极度低下"),
+            ('flag_negative_equity', "❌【资不抵债危机】股东权益为负数，已陷入技术性破产"),
+            ('flag_cash_debt_anomaly', "❌【存贷双高异象】账面货币资金高占比同时背负巨额短期债务，警惕大额资金受限或虚假存单"),
+            ('flag_goodwill_burden', "❌【商誉极危悬顶】账面商誉占净资产比例超50%，面临大额商誉减值洗澡崩塌风险"),
+            ('flag_ar_anomaly', "❌【应收账款畸高】应收账款占收入比重反常扩张，警惕提前确认收入或向关联方虚构销售"),
+            ('flag_inv_overhang', "❌【存货滞销积压】存货周转急剧恶化，警惕滞销未足额计提存货跌价准备"),
+            ('flag_cip_anomaly', "❌【在建工程长期挂账】在建工程长期挂账不转固，涉嫌少计折旧以隐匿生产成本"),
+            ('flag_op_loss_masked', "❌【主营亏损掩盖】核心主营业务营业利润实质亏损，依靠非经常性损益粉饰最终净利")
         ]
 
         active_flags = np.zeros(len(df_norm), dtype=int)
-        for col_name, _ in flag_cols:
+        for col_name, _ in flag_details:
             if col_name in df_norm.columns:
                 active_flags += df_norm[col_name].fillna(False).astype(int)
         df_norm['hit_risk_count'] = active_flags
+
+        def build_notes(row):
+            reasons = []
+            for col, desc in flag_details:
+                if bool(row.get(col)):
+                    reasons.append(desc)
+            if not reasons:
+                return "✅ 财务勾稽严密，未命中任何系统性财务造假与粉饰红旗。"
+            return "\n".join([f"{i+1}. {r}" for i, r in enumerate(reasons)])
+
+        df_norm['risk_reasons_notes'] = df_norm.apply(build_notes, axis=1)
 
         return df_norm

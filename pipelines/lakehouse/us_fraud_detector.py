@@ -8,7 +8,9 @@ SEC 美股上市公司财报造假与粉饰风险自动扫描审计引擎 (US St
 import os
 import sys
 import time
+import re
 import argparse
+from datetime import datetime
 import duckdb
 import pandas as pd
 import numpy as np
@@ -21,6 +23,25 @@ if sys.platform.startswith('win'):
         pass
 
 from forensic_engine import ForensicEvaluator
+
+
+def generate_report_filename(prefix: str = "美股上市公司财报排雷榜单", fy: str = "", all_years: bool = False, company: str = "", actual_min_y: str = "", actual_max_y: str = "") -> str:
+    """根据扫描目标、年份区间与当前时间自动生成语义化文件命名"""
+    now_str = datetime.now().strftime("%Y%m%d_%H%M")
+    if company:
+        safe_c = re.sub(r'[^\w]+', '_', company).strip('_')
+        return f"美股法务排雷报告_{safe_c}_{now_str}.xlsx"
+    if actual_min_y and actual_max_y:
+        if actual_min_y == actual_max_y:
+            return f"{prefix}_{actual_min_y}年全景_{now_str}.xlsx"
+        else:
+            return f"{prefix}_{actual_min_y}-{actual_max_y}历年全景_{now_str}.xlsx"
+    elif all_years or (fy and fy.lower() == 'all'):
+        return f"{prefix}_2020-2026历年全景_{now_str}.xlsx"
+    elif fy:
+        return f"{prefix}_{fy}财年_{now_str}.xlsx"
+    else:
+        return f"{prefix}_全市场最新财年_{now_str}.xlsx"
 
 
 def safe_save_excel(data, file_path: str) -> str:
@@ -246,10 +267,27 @@ class USStockFraudDetector:
         df_scored = ForensicEvaluator.evaluate_dataframe(df_raw, entity_col='cik', time_col='period')
         print(f"[+] 向量化评估完毕，耗时 {time.time()-t_eval:.2f} 秒！")
 
-        # 整理导出列
+        # 计算实际覆盖的年份区间
+        periods_str = df_scored['period'].astype(str)
+        actual_min_y = periods_str.str[:4].min()
+        actual_max_y = periods_str.str[:4].max()
+
+        # 动态智能命名报告文件 (若未指定自定义路径或为默认路径)
+        if not output_report or "美股上市公司财报造假风险扫描榜单.xlsx" in output_report:
+            out_file = generate_report_filename(
+                prefix="美股上市公司排雷榜单",
+                fy=fy,
+                all_years=all_years,
+                actual_min_y=actual_min_y,
+                actual_max_y=actual_max_y
+            )
+        else:
+            out_file = output_report
+
+        # 整理导出列 (包含清晰直白的排雷诊断结论与具体成因 Notes)
         df_out = df_scored[[
             'cik', 'name', 'fy', 'period', 'form',
-            'total_risk_score', 'risk_level', 'hit_risk_count',
+            'total_risk_score', 'risk_level', 'diagnostic_summary', 'risk_reasons_notes', 'hit_risk_count',
             'altman_z_score', 'altman_zone', 'sloan_accrual',
             'beneish_m_score', 'beneish_is_manipulator',
             'sales', 'net_income', 'cfo', 'assets', 'equity', 'goodwill'
@@ -264,7 +302,7 @@ class USStockFraudDetector:
         df_out = df_out.drop(columns=['sales', 'net_income', 'cfo', 'assets', 'equity', 'goodwill'])
 
         # -------------------------------------------------------------
-        # 核心逻辑纠正：严格以【公司 (Company/CIK)】为核心主键排列，而非零散文件
+        # 核心架构：以【公司 (Company/CIK)】为核心主键排列，输出清晰诊断 Notes
         # -------------------------------------------------------------
         # 1. 构建【公司排雷总榜 (Company Summary)】：每家公司独占一行
         df_latest_by_company = df_out.sort_values(by='period', ascending=False).groupby('cik', as_index=False).first()
@@ -291,6 +329,8 @@ class USStockFraudDetector:
             'form': '最新报表类型',
             'total_risk_score': '当前综合风险评分',
             'risk_level': '当前风险等级',
+            'diagnostic_summary': '排雷诊断结论',
+            'risk_reasons_notes': '具体风险成因与排雷证据说明(Notes)',
             'hit_risk_count': '当前预警项数',
             'altman_z_score': '最新Altman_Z',
             'altman_zone': '最新Z分区间',
@@ -315,6 +355,8 @@ class USStockFraudDetector:
             'form': '申报类型',
             'total_risk_score': '当期风险评分',
             'risk_level': '当期风险等级',
+            'diagnostic_summary': '排雷诊断结论',
+            'risk_reasons_notes': '当期具体风险成因与排雷证据说明(Notes)',
             'hit_risk_count': '当期预警项数',
             'altman_z_score': 'Altman_Z分值',
             'altman_zone': 'Z分区间',
@@ -326,31 +368,40 @@ class USStockFraudDetector:
         # 3. 构建【高危操纵关注专区 (High Risk Watchlist)】
         df_red_flags = df_company_summary[df_company_summary['当前综合风险评分'] >= 50].copy()
 
-        # 组装多 Sheet 工作簿
-        sheets_data = {
-            "美股上市公司排雷总榜": df_company_summary,
-            "公司历年报表穿透明细": df_filings_by_company,
-            "高危操纵关注名单": df_red_flags
-        }
+        # 根据是否为多年度历年模式自适应调整 Sheet 顺序
+        is_multi_year = all_years or (fy and fy.lower() == 'all') or (actual_min_y != actual_max_y)
+        if is_multi_year:
+            # 历年大排查模式下，首工作表优先展示同一家公司的跨年度历年穿透明细
+            sheets_data = {
+                f"公司历年穿透明细({actual_min_y}-{actual_max_y})": df_filings_by_company,
+                "美股上市公司排雷总榜": df_company_summary,
+                "高危操纵关注名单": df_red_flags
+            }
+        else:
+            sheets_data = {
+                "美股上市公司排雷总榜": df_company_summary,
+                "公司历年报表穿透明细": df_filings_by_company,
+                "高危操纵关注名单": df_red_flags
+            }
 
         actual_output = safe_save_excel(sheets_data, out_file)
 
         print("\n" + "=" * 70)
         print("🎉 【美股全市场财务造假与粉饰风险扫描完成！】")
         print("=" * 70)
+        print(f"● 实际覆盖区间: {actual_min_y} 年 ~ {actual_max_y} 年 (共 {len(df_filings_by_company):,} 份财报)")
         print(f"● 扫描覆盖公司: {len(df_company_summary):,} 家上市公司 (以公司为核心排列)")
-        print(f"● 穿透财报总数: {len(df_filings_by_company):,} 份申报记录")
         print(f"● 红色高危公司: {len(df_company_summary[df_company_summary['当前综合风险评分'] >= 50]):,} 家")
         print(f"● 橙色关注公司: {len(df_company_summary[(df_company_summary['当前综合风险评分'] >= 30) & (df_company_summary['当前综合风险评分'] < 50)]):,} 家")
         print(f"● 黄色提示公司: {len(df_company_summary[(df_company_summary['当前综合风险评分'] >= 15) & (df_company_summary['当前综合风险评分'] < 30)]):,} 家")
         print(f"● 绿色安全公司: {len(df_company_summary[df_company_summary['当前综合风险评分'] < 15]):,} 家")
+        print(f"● 报告智能命名: {os.path.basename(actual_output)}")
         print(f"● 全景报告导出: {os.path.abspath(actual_output)}")
-        print("  - Sheet 1: 美股上市公司排雷总榜 (每家公司独立一行，按综合风险倒序)")
-        print("  - Sheet 2: 公司历年报表穿透明细 (同一家公司历年报表紧挨连续排列)")
-        print("  - Sheet 3: 高危操纵关注名单 (直接提取红字重点排查名单)")
+        print("  - 表格特性: 包含【排雷诊断结论】与分条【具体风险成因与证据说明(Notes)】")
+        print(f"  - Sheet 1: {'公司历年穿透明细 (跨年度连续排列)' if is_multi_year else '美股上市公司排雷总榜 (每家公司独立一行)'}")
         print("=" * 70)
         print("\n【美股风险评分 TOP 20 公司排行榜】:")
-        print(df_company_summary[["CIK", "公司名称", "最新申报期", "当前综合风险评分", "当前风险等级", "历史最高风险评分", "最新Altman_Z", "最新Sloan净应计"]].head(20).to_string(index=False))
+        print(df_company_summary[["CIK", "公司名称", "最新申报期", "当前综合风险评分", "当前风险等级", "排雷诊断结论"]].head(20).to_string(index=False))
 
 
 def main():

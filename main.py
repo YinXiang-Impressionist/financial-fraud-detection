@@ -24,7 +24,9 @@ SEC 美股财务数据分析与法务排雷一键式主平台 (All-in-One US Sto
 import os
 import sys
 import time
+import re
 import argparse
+from datetime import datetime
 import pandas as pd
 
 # 保证 Windows 控制台 UTF-8 输出
@@ -45,29 +47,43 @@ from pipelines.lakehouse import (
 )
 
 
-def check_lakehouse_ready(db_path: str) -> tuple:
+def check_lakehouse_ready(db_path: str, require_all_years: bool = False) -> tuple:
     """
-    检查本地 DuckDB 湖仓完整性
-    返回: (is_ready: bool, status_message: str, row_count: int)
+    检查本地 DuckDB 湖仓完整性与时间覆盖范围
+    返回: (is_ready: bool, status_message: str, row_count: int, min_year: int, max_year: int, year_count: int)
     """
     if not os.path.exists(db_path):
-        return False, "未找到数据库文件", 0
+        return False, "未找到数据库文件", 0, 0, 0, 0
     try:
         import duckdb
         con = duckdb.connect(db_path, read_only=True)
         tables = [t[0] for t in con.execute("SHOW TABLES").fetchall()]
         if 'sub' not in tables or 'num' not in tables:
             con.close()
-            return False, "数据库表结构不完整 (缺失 sub/num 视图)", 0
+            return False, "数据库表结构不完整 (缺失 sub/num 视图)", 0, 0, 0, 0
         
-        # 验证底层视图数据是否可读取 (排查 Parquet 路径断链)
-        row = con.execute("SELECT count(*) FROM sub").fetchone()
+        # 验证底层视图数据是否可读取并统计实际财报年份跨度
+        row = con.execute("""
+            SELECT count(*), 
+                   min(try_cast(substr(cast(period as varchar), 1, 4) as int)),
+                   max(try_cast(substr(cast(period as varchar), 1, 4) as int)),
+                   count(distinct try_cast(substr(cast(period as varchar), 1, 4) as int))
+            FROM sub
+        """).fetchone()
         con.close()
         if row and row[0] > 0:
-            return True, f"数据完整 (挂载 {row[0]:,} 份财报申报记录)", row[0]
-        return False, "数据库记录数为空", 0
+            total_count = row[0]
+            min_y = row[1] or 2026
+            max_y = row[2] or 2026
+            y_cnt = row[3] or 1
+
+            if require_all_years and (min_y > 2021 or y_cnt <= 2):
+                return False, f"本地仅包含 {min_y} 年数据 (共 {y_cnt} 个年份，缺失 2020-2025 历史年度数据包)", total_count, min_y, max_y, y_cnt
+
+            return True, f"数据完整 (覆盖 {min_y}-{max_y} 年，共 {total_count:,} 份财报申报记录)", total_count, min_y, max_y, y_cnt
+        return False, "数据库记录数为空", 0, 0, 0, 0
     except Exception as e:
-        return False, f"底层 Parquet 数据缺失或读取异常: {e}", 0
+        return False, f"底层 Parquet 数据缺失或读取异常: {e}", 0, 0, 0, 0
 
 
 def ensure_lakehouse_ready(
@@ -76,21 +92,22 @@ def ensure_lakehouse_ready(
     parquet_dir: str = "./sec_parquet",
     start_year: int = 2020,
     end_year: int = 2026,
-    force_download: bool = False
+    force_download: bool = False,
+    require_all_years: bool = False
 ) -> bool:
     """
     全自动保证本地湖仓可用：
     1. 若已有完整数据，智能跳过下载与构建，秒级直接使用；
-    2. 若缺失数据，自动启动断点续传下载与 Parquet 湖仓构建。
+    2. 若缺失数据或缺少历史年度，自动启动断点续传下载与 Parquet 湖仓构建。
     """
-    ready, msg, _ = check_lakehouse_ready(db_path)
+    ready, msg, _, min_y, max_y, _ = check_lakehouse_ready(db_path, require_all_years=require_all_years)
     if ready and not force_download:
         print(f"[+] 湖仓就绪检查通过: {msg}")
-        print("[+] 检测到本地已存在完整数据，自动跳过下载与构建，直接执行分析任务！\n")
+        print("[+] 检测到本地已存在所需数据，自动跳过下载与构建，直接执行分析任务！\n")
         return True
 
     print(f"\n[*] 检查本地数据状态: {msg}")
-    print("[*] 正在为您全自动整备全市场历史数据 (已有季度文件自动跳过，无需重复下载)...")
+    print(f"[*] 正在为您全自动整备 {start_year}-{end_year} 历史数据 (已有季度文件自动跳过，无需重复下载)...")
 
     # 1. 检查并下载 SEC DERA 原始数据包
     downloader = SecDeraDownloader(download_dir=zips_dir, start_year=start_year, end_year=end_year)
@@ -101,12 +118,12 @@ def ensure_lakehouse_ready(
     builder.run()
 
     # 最终验证
-    ready_after, msg_after, _ = check_lakehouse_ready(db_path)
+    ready_after, msg_after, _, _, _, _ = check_lakehouse_ready(db_path, require_all_years=require_all_years)
     if ready_after:
         print(f"\n🎉 本地湖仓全自动整备完毕: {msg_after}\n")
         return True
     else:
-        print(f"\n[-] 湖仓整备失败: {msg_after}。请检查网络或日志。\n")
+        print(f"\n[-] 湖仓整备状态: {msg_after}\n")
         return False
 
 
@@ -142,6 +159,7 @@ def audit_single_ticker_online(ticker: str) -> dict:
     print("-" * 75)
     print(f"● 综合风险评分 : {report['total_risk_score']} 分 (0~100, 越高风险越致命)")
     print(f"● 综合风险等级 : {report['risk_level']}")
+    print(f"● 排雷诊断结论 : {report.get('diagnostic_summary', '')}")
     print(f"● 命中风险项数 : {report['warning_count']} 项")
     print("-" * 75)
     print("【纯数理统计与计量模型侦测结果 (Statistical Detective)】:")
@@ -154,10 +172,10 @@ def audit_single_ticker_online(ticker: str) -> dict:
     print(f"  ● Sloan 经典净应计异象   : {report.get('sloan_accrual')} ({'❌ 高应计虚增' if (report.get('sloan_accrual') or 0) > 0.10 else '✅ 现金流支撑强'})")
     print(f"  ● 科研真值标签 (Ground Truth) : target_is_restated_fraud = {r_info.get('target_is_restated_fraud', False)}")
     print("-" * 75)
-    print("【排雷诊断与纯数理反常预警】:")
-    if report['warnings']:
-        for item in report['warnings']:
-            print(f"  ❌ {item}")
+    print("【排雷诊断与具体成因证据说明 (Notes)】:")
+    if report.get('risk_reasons_notes'):
+        for line in report['risk_reasons_notes'].split('\n'):
+            print(f"  {line}")
     else:
         print("  ✅ 财务三张表勾稽严密，各项数理与统计指标均处于正常安全区间。")
     print("-" * 75)
@@ -170,9 +188,13 @@ def audit_single_ticker_online(ticker: str) -> dict:
     return {**dossier, **report}
 
 
-def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选股法务排雷榜单.xlsx"):
-    """批量在线排雷一组股票并导出 Excel 报告"""
+def audit_batch_tickers(ticker_list: list, output_report: str = ""):
+    """批量在线排雷一组股票并导出清晰易读的 Excel 诊断报告"""
     t_batch_start = time.time()
+    now_str = datetime.now().strftime("%Y%m%d_%H%M")
+    tickers_label = "_".join(ticker_list[:3]) + (f"_等{len(ticker_list)}只" if len(ticker_list) > 3 else "")
+    actual_out_name = output_report or f"./美股自选股排雷报告_{tickers_label}_{now_str}.xlsx"
+
     print(f"\n[*] 启动股票池批量排雷任务，共 {len(ticker_list)} 只股票: {', '.join(ticker_list)}")
     results = []
     for t in ticker_list:
@@ -185,6 +207,8 @@ def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选�
                 "公司名称": res.get('name'),
                 "综合风险评分": res.get('total_risk_score'),
                 "风险等级": res.get('risk_level'),
+                "排雷诊断结论": res.get('diagnostic_summary'),
+                "具体风险成因与证据说明(Notes)": res.get('risk_reasons_notes'),
                 "命中风险项数": res.get('warning_count'),
                 "Beneish_M分值": res.get('beneish_m_score'),
                 "琼斯DA可操纵应计": res.get('discretionary_accruals'),
@@ -195,8 +219,7 @@ def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选�
                 "单票耗时_秒": round(t_item, 2),
                 "营业收入_百万美元": round(res.get('sales', 0)/1e6, 2),
                 "净利润_百万美元": round(res.get('net_income', 0)/1e6, 2),
-                "经营现金流_百万美元": round(res.get('cfo', 0)/1e6, 2),
-                "预警明细": " | ".join(res.get('warnings', [])) if res.get('warnings') else "正常"
+                "经营现金流_百万美元": round(res.get('cfo', 0)/1e6, 2)
             })
         except Exception as e:
             print(f"[-] 抓取 {t} 失败: {e}")
@@ -206,9 +229,11 @@ def audit_batch_tickers(ticker_list: list, output_report: str = "./美股自选�
 
     if results:
         df_out = pd.DataFrame(results).sort_values(by="综合风险评分", ascending=False)
-        actual_path = safe_save_excel(df_out, output_report)
+        actual_path = safe_save_excel(df_out, actual_out_name)
         print("\n" + "=" * 70)
-        print(f"🎉 批量法务排雷完成！成功分析 {len(df_out)} 只股票，报告已导出至: {os.path.abspath(actual_path)}")
+        print(f"🎉 批量法务排雷完成！成功分析 {len(df_out)} 只股票")
+        print(f"● 报告智能命名: {os.path.basename(actual_path)}")
+        print(f"● 报告导出路径: {os.path.abspath(actual_path)}")
         print("-" * 70)
         print("⏱️ 【批量审计耗时统计】:")
         print(f"  ● 批量分析总耗时  : {t_batch_total:.2f} 秒")
@@ -267,9 +292,27 @@ def run_interactive_menu():
                 detector.scan_all_stocks()
 
         elif choice == '4':
-            if ensure_lakehouse_ready():
-                detector = USStockFraudDetector()
-                detector.scan_all_stocks(all_years=True)
+            ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready("./sec_financials.duckdb", require_all_years=True)
+            if not ready and min_y > 2021:
+                print("\n" + "=" * 70)
+                print("⚠️ 【历史年度数据完整性提醒】")
+                print("=" * 70)
+                print(f"● 当前状态: {msg}")
+                print(f"● 提示: 您选择了 [2020-2026 历年历史大排查]，但本地目前仅包含 {min_y} 年的申报记录。")
+                print(f"● 若要真正实现 2020-2026 跨 6 年全量历史回溯，需要从 SEC 下载 2020-2025 的历史数据包。")
+                print("=" * 70)
+                ans = input("👉 是否立即自动下载并补齐 2020-2025 历史数据包？(输入 y 下载，输入 n 直接基于现有数据排查) [y/N]: ").strip().lower()
+                if ans in ['y', 'yes']:
+                    if not ensure_lakehouse_ready(start_year=2020, end_year=2026, force_download=True, require_all_years=True):
+                        continue
+                else:
+                    print(f"[*] 继续基于本地现有数据 ({min_y}年) 执行历年排查任务...\n")
+            elif not ready:
+                if not ensure_lakehouse_ready(start_year=2020, end_year=2026, require_all_years=True):
+                    continue
+
+            detector = USStockFraudDetector()
+            detector.scan_all_stocks(all_years=True)
 
         elif choice == '5':
             if ensure_lakehouse_ready():
@@ -287,13 +330,14 @@ def run_interactive_menu():
                     backtester.run_backtest(factor_col=f_col, factor_name=f_name)
 
         elif choice == '6':
-            ready, msg, count = check_lakehouse_ready("./sec_financials.duckdb")
+            ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready("./sec_financials.duckdb")
             print("\n" + "=" * 65)
             print("🔍 【本地 SEC 数据湖仓完整性检查报告】")
             print("=" * 65)
             print(f"● 湖仓就绪状态: {'✅ 完整可用' if ready else '❌ 尚未就绪'}")
             print(f"● 详细状态说明: {msg}")
             if ready:
+                print(f"● 时间跨度覆盖: {min_y} 年 ~ {max_y} 年 (共 {y_cnt} 个财年)")
                 print(f"● 总财报申报数: {count:,} 份")
             print("=" * 65 + "\n")
 
@@ -347,7 +391,7 @@ def main():
     parser.add_argument("--all-years", action="store_true", help="全量扫描 2020-2026 历年全部 18 万份历史申报记录")
     parser.add_argument("--backtest", action="store_true", help="运行 6 大法务会计量化因子全市场回测 (自动检测本地数据)")
     parser.add_argument("--fy", type=str, default="", help="指定目标财年过滤，如: 2025")
-    parser.add_argument("--output", type=str, default="./美股上市公司财报造假风险扫描榜单.xlsx", help="导出报告路径")
+    parser.add_argument("--output", type=str, default="", help="导出报告路径 (默认根据公司、年份及时间智能动态命名)")
     
     args = parser.parse_args()
 
@@ -365,7 +409,7 @@ def main():
 
         # 3. 显式检查本地数据完整性
         if args.check_data:
-            ready, msg, count = check_lakehouse_ready(args.db)
+            ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready(args.db)
             print("\n" + "=" * 65)
             print("🔍 【本地 SEC 数据湖仓完整性检查报告】")
             print("=" * 65)
@@ -373,6 +417,7 @@ def main():
             print(f"● 湖仓就绪状态  : {'✅ 完整可用' if ready else '❌ 尚未就绪'}")
             print(f"● 状态详细说明  : {msg}")
             if ready:
+                print(f"● 时间跨度覆盖  : {min_y} 年 ~ {max_y} 年 (共 {y_cnt} 个财年)")
                 print(f"● 总财报申报数  : {count:,} 份")
             print("=" * 65 + "\n")
             return
@@ -396,7 +441,8 @@ def main():
                 zips_dir=args.zips_dir,
                 parquet_dir=args.parquet_dir,
                 start_year=args.start_year,
-                end_year=args.end_year
+                end_year=args.end_year,
+                require_all_years=args.all_years
             ):
                 return
 
