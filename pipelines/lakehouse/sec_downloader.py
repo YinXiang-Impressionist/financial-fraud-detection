@@ -40,6 +40,10 @@ SEC_HEADERS = {
 }
 
 
+def is_zh() -> bool:
+    return os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
+
+
 class SecDeraDownloader:
     def __init__(self, download_dir: str = "", start_year: int = DEFAULT_START_YEAR, end_year: int = CURRENT_YEAR):
         self.download_dir = os.path.abspath(download_dir) if download_dir else DEFAULT_ZIPS_DIR
@@ -49,7 +53,7 @@ class SecDeraDownloader:
         self.base_url = "https://www.sec.gov/files/dera/data/financial-statement-data-sets"
 
     def get_quarter_list(self):
-        """动态生成从 start_year 到 end_year 的合法季度清单 (自动匹配历史与当期自然季度)"""
+        """Generate quarterly tags from start_year to end_year"""
         quarters = []
         now_y = datetime.now().year
         now_q = (datetime.now().month - 1) // 3 + 1
@@ -60,7 +64,8 @@ class SecDeraDownloader:
         return quarters
 
     def download_file(self, quarter_tag, max_retries=5):
-        """流式下载单个季度的 zip 压缩包"""
+        """Stream download quarterly zip package with integrity validation"""
+        zh = is_zh()
         file_name = f"{quarter_tag}.zip"
         target_path = os.path.join(self.download_dir, file_name)
         url = f"{self.base_url}/{file_name}"
@@ -71,7 +76,8 @@ class SecDeraDownloader:
                 import zipfile
                 with zipfile.ZipFile(target_path, 'r') as zf:
                     if 'sub.txt' in zf.namelist() and 'num.txt' in zf.namelist():
-                        return True, "已完整下载(跳过)"
+                        msg = "已完整下载(跳过)" if zh else "Already downloaded (skipped)"
+                        return True, msg
             except Exception:
                 pass
 
@@ -95,9 +101,9 @@ class SecDeraDownloader:
                     with zipfile.ZipFile(target_path, 'r') as zf:
                         names = zf.namelist()
                         if 'sub.txt' not in names or 'num.txt' not in names:
-                            raise ValueError("Zip 文件缺失关键报表文件")
+                            raise ValueError("Zip missing required files (sub.txt/num.txt)")
                             
-                    return True, "下载成功"
+                    return True, "下载成功" if zh else "Download successful"
                     
                 elif resp.status_code == 404:
                     return False, "404 Not Found"
@@ -108,23 +114,31 @@ class SecDeraDownloader:
 
             except Exception as e:
                 if attempt == max_retries - 1:
-                    return False, f"异常失败: {str(e)}"
+                    return False, f"Failed: {str(e)}"
                 time.sleep(2.0 * (attempt + 1))
 
-        return False, "重试耗尽"
+        return False, "Retries exhausted"
 
     def run(self):
         quarters = self.get_quarter_list()
+        zh = is_zh()
         print("\n" + "=" * 65)
-        print(f"[*] 启动 SEC DERA 财务报表数据批量下载任务")
-        print(f"[*] 目标范围: {quarters[0]} ~ {quarters[-1]} (共 {len(quarters)} 个季度)")
-        print(f"[*] 保存路径: {self.download_dir}")
+        if zh:
+            print(f"[*] 启动 SEC DERA 财务报表数据批量下载任务")
+            print(f"[*] 目标范围: {quarters[0]} ~ {quarters[-1]} (共 {len(quarters)} 个季度)")
+            print(f"[*] 保存路径: {self.download_dir}")
+        else:
+            print(f"[*] Starting bulk download for SEC DERA financial statement datasets")
+            print(f"[*] Target Range: {quarters[0]} ~ {quarters[-1]} ({len(quarters)} quarters)")
+            print(f"[*] Download Dir: {self.download_dir}")
         print("=" * 65 + "\n")
 
         success_list = []
         failed_list = []
 
-        for q in tqdm(quarters, desc="总体季度进度", unit="季度"):
+        progress_desc = "总体季度进度" if zh else "Quarterly Progress"
+        progress_unit = "季度" if zh else "quarter"
+        for q in tqdm(quarters, desc=progress_desc, unit=progress_unit):
             ok, msg = self.download_file(q)
             if ok:
                 success_list.append(q)
@@ -132,7 +146,10 @@ class SecDeraDownloader:
                 failed_list.append((q, msg))
 
         print("\n" + "=" * 65)
-        print(f"[+] 下载任务汇总: 成功 {len(success_list)} 个 / 失败 {len(failed_list)} 个")
+        if zh:
+            print(f"[+] 下载任务汇总: 成功 {len(success_list)} 个 / 失败 {len(failed_list)} 个")
+        else:
+            print(f"[+] Download summary: {len(success_list)} succeeded / {len(failed_list)} failed")
         print("=" * 65)
 
 

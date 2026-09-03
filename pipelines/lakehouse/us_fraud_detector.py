@@ -37,29 +37,41 @@ ACTIVE_LOOKBACK_YEAR = CURRENT_YEAR - 4  # 扫描活跃上市公司的有效观�
 from forensic_engine import ForensicEvaluator, generate_market_scan_summary_md
 
 
-def generate_report_filename(prefix: str = "美股上市公司财报排雷榜单", fy: str = "", all_years: bool = False, company: str = "", actual_min_y: str = "", actual_max_y: str = "") -> str:
-    """根据扫描目标、年份区间与当前时间自动生成语义化文件命名"""
+def is_zh() -> bool:
+    return os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
+
+
+def generate_report_filename(prefix: str = "", fy: str = "", all_years: bool = False, company: str = "", actual_min_y: str = "", actual_max_y: str = "") -> str:
+    """Generate semantic report filenames with English as default and Chinese support"""
+    zh = is_zh()
+    default_prefix = prefix or ("美股上市公司财报排雷榜单" if zh else "US_Stock_Forensic_Audit_Report")
     now_str = datetime.now().strftime("%Y%m%d_%H%M")
     if company:
         safe_c = re.sub(r'[^\w]+', '_', company).strip('_')
-        return f"美股法务排雷报告_{safe_c}_{now_str}.xlsx"
+        return f"{default_prefix}_{safe_c}_{now_str}.xlsx"
     if actual_min_y and actual_max_y:
         if actual_min_y == actual_max_y:
-            return f"{prefix}_{actual_min_y}年全景_{now_str}.xlsx"
+            suffix = f"{actual_min_y}年全景" if zh else f"FY_{actual_min_y}"
         else:
-            return f"{prefix}_{actual_min_y}-{actual_max_y}历年全景_{now_str}.xlsx"
+            suffix = f"{actual_min_y}-{actual_max_y}历年全景" if zh else f"FY_{actual_min_y}_{actual_max_y}"
+        return f"{default_prefix}_{suffix}_{now_str}.xlsx"
     elif all_years or (fy and fy.lower() == 'all'):
-        return f"{prefix}_{DEFAULT_START_YEAR}-{CURRENT_YEAR}历年全景_10年完整数据_{now_str}.xlsx"
+        suffix = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR}历年全景_10年完整数据" if zh else f"Decade_{DEFAULT_START_YEAR}_{CURRENT_YEAR}"
+        return f"{default_prefix}_{suffix}_{now_str}.xlsx"
     elif fy:
-        return f"{prefix}_{fy}财年_{now_str}.xlsx"
+        suffix = f"{fy}财年" if zh else f"FY_{fy}"
+        return f"{default_prefix}_{suffix}_{now_str}.xlsx"
     else:
-        return f"{prefix}_全市场最新财年_{now_str}.xlsx"
+        suffix = "全市场最新财年" if zh else "Latest_Fiscal_Year"
+        return f"{default_prefix}_{suffix}_{now_str}.xlsx"
 
 
 def safe_save_excel(data, file_path: str) -> str:
-    """安全保存 Excel 文件（支持单 DataFrame 或多 Sheet 字典），若被 Excel 软件打开锁定则自动保存为备用名称"""
+    """Safe Excel exporter handling Windows file locking gracefully"""
     base, ext = os.path.splitext(file_path)
-    for attempt_path in [file_path, f"{base}_最新{ext}"]:
+    zh = is_zh()
+    backup_suffix = "_最新" if zh else "_latest"
+    for attempt_path in [file_path, f"{base}{backup_suffix}{ext}"]:
         try:
             if isinstance(data, dict):
                 with pd.ExcelWriter(attempt_path, engine='openpyxl') as writer:
@@ -69,12 +81,14 @@ def safe_save_excel(data, file_path: str) -> str:
                 data.to_excel(attempt_path, index=False, engine='openpyxl')
 
             if attempt_path != file_path:
-                print(f"⚠️ 提示: 检测到原文件 {os.path.basename(file_path)} 正被 Excel 占用，已安全保存至: {os.path.basename(attempt_path)}")
+                msg = f"⚠️ 提示: 检测到原文件 {os.path.basename(file_path)} 正被 Excel 占用，已安全保存至: {os.path.basename(attempt_path)}" if zh else f"⚠️ Notice: Original file {os.path.basename(file_path)} is locked by another program; saved safely as: {os.path.basename(attempt_path)}"
+                print(msg)
             return attempt_path
         except PermissionError:
             continue
         except Exception as e:
-            print(f"[-] 保存 Excel 失败: {e}")
+            err_msg = f"[-] 保存 Excel 失败: {e}" if zh else f"[-] Failed saving Excel: {e}"
+            print(err_msg)
             return file_path
     return file_path
 
@@ -82,7 +96,9 @@ def safe_save_excel(data, file_path: str) -> str:
 class USStockFraudDetector:
     def __init__(self, db_path: str = "", output_report: str = ""):
         self.db_path = os.path.abspath(db_path) if db_path else DEFAULT_DB_PATH
-        self.output_report = os.path.abspath(output_report) if output_report else DEFAULT_REPORT_PATH
+        zh = is_zh()
+        default_report_name = DEFAULT_REPORT_PATH if zh else os.path.join(PROJECT_ROOT, "US_Stock_Forensic_Audit_Report.xlsx")
+        self.output_report = os.path.abspath(output_report) if output_report else default_report_name
 
     def _ensure_db(self):
         if not os.path.exists(self.db_path):
@@ -134,8 +150,10 @@ class USStockFraudDetector:
         df = con.execute(query, [f"%{cik_or_name}%", cik_or_name]).df()
         con.close()
 
+        zh = is_zh()
         if df.empty:
-            print(f"[-] 未在 DuckDB 中检索到公司 '{cik_or_name}' 的财报数据。")
+            msg = f"[-] 未在 DuckDB 中检索到公司 '{cik_or_name}' 的财报数据。" if zh else f"[-] No financial records found for '{cik_or_name}' in DuckDB."
+            print(msg)
             return {}
 
         curr_record = df.iloc[0].to_dict()
@@ -153,44 +171,77 @@ class USStockFraudDetector:
         equity = curr_record.get('equity') or 0.0
         gw = curr_record.get('goodwill') or 0.0
 
-        print("\n" + "=" * 70)
-        print(f"🏛️ 【美股法务会计审计与排雷诊断报告】: {name} (CIK: {cik})")
-        print("=" * 70)
-        print(f"● 报告期数据  : {curr_record.get('period')} (Form {curr_record.get('form')} | FY: {curr_record.get('fy')})")
-        print(f"● 营业收入    : ${rev/1e6:,.2f} Million")
-        print(f"● 净利润      : ${ni/1e6:,.2f} Million")
-        print(f"● 经营现金流  : ${cfo/1e6:,.2f} Million")
-        print(f"● 股东总权益  : ${equity/1e6:,.2f} Million")
-        print(f"● 账面商誉    : ${gw/1e6:,.2f} Million")
-        print("-" * 70)
-        print(f"● 综合风险评分: {report['total_risk_score']} 分 (0~100, 越高风险越大)")
-        print(f"● 综合风险等级: {report['risk_level']}")
-        print(f"● 命中排雷项数: {report['warning_count']} 项")
-        print(f"● Altman Z分值: {report.get('altman_z')} ({report.get('altman_zone')})")
-        print(f"● Sloan净应计 : {report.get('sloan_accrual')} ({'高应计水分' if report.get('sloan_accrual', 0) > 0.1 else '现金含量充足'})")
-        if report.get('beneish_m_score') is not None:
-            print(f"● Beneish M分 : {report.get('beneish_m_score')} ({'高危操纵嫌疑' if report.get('beneish_is_manipulator') else '未见系统性操纵'})")
-        print("-" * 70)
-        print("【预警明细与法务诊断】:")
-        if report['warnings']:
-            for item in report['warnings']:
-                print(f"  ❌ {item}")
+        print("\n" + "=" * 75)
+        if zh:
+            print(f"🏛️ 【美股法务会计审计与排雷诊断报告】: {name} (CIK: {cik})")
+            print("=" * 75)
+            print(f"● 报告期数据  : {curr_record.get('period')} (Form {curr_record.get('form')} | FY: {curr_record.get('fy')})")
+            print(f"● 营业收入    : ${rev/1e6:,.2f} Million")
+            print(f"● 净利润      : ${ni/1e6:,.2f} Million")
+            print(f"● 经营现金流  : ${cfo/1e6:,.2f} Million")
+            print(f"● 股东总权益  : ${equity/1e6:,.2f} Million")
+            print(f"● 账面商誉    : ${gw/1e6:,.2f} Million")
+            print("-" * 75)
+            print(f"● 综合风险评分: {report['total_risk_score']} 分 (0~100, 越高风险越大)")
+            print(f"● 综合风险等级: {report['risk_level']}")
+            print(f"● 命中排雷项数: {report['warning_count']} 项")
+            print(f"● Altman Z分值: {report.get('altman_z')} ({report.get('altman_zone')})")
+            print(f"● Sloan净应计 : {report.get('sloan_accrual')} ({'高应计水分' if report.get('sloan_accrual', 0) > 0.1 else '现金含量充足'})")
+            if report.get('beneish_m_score') is not None:
+                print(f"● Beneish M分 : {report.get('beneish_m_score')} ({'高危操纵嫌疑' if report.get('beneish_is_manipulator') else '未见系统性操纵'})")
+            print("-" * 75)
+            print("【预警明细与法务诊断】:")
+            if report['warnings']:
+                for item in report['warnings']:
+                    print(f"  ❌ {item}")
+            else:
+                print("  ✅ 财务三张表勾稽稳健，各项法务指标均处于正常安全区间。")
         else:
-            print("  ✅ 财务三张表勾稽稳健，各项法务指标均处于正常安全区间。")
-        print("=" * 70 + "\n")
+            print(f"🏛️ [SEC Quantitative Forensic Fraud Audit Report]: {name} (CIK: {cik})")
+            print("=" * 75)
+            print(f"● Filing Period     : {curr_record.get('period')} (Form {curr_record.get('form')} | FY: {curr_record.get('fy')})")
+            print(f"● Revenue (Sales)   : ${rev/1e6:,.2f} Million")
+            print(f"● Net Income        : ${ni/1e6:,.2f} Million")
+            print(f"● Operating Cash    : ${cfo/1e6:,.2f} Million")
+            print(f"● Total Equity      : ${equity/1e6:,.2f} Million")
+            print(f"● Goodwill          : ${gw/1e6:,.2f} Million")
+            print("-" * 75)
+            print(f"● Total Risk Score  : {report['total_risk_score']} / 100 (Higher indicates greater risk)")
+            print(f"● Risk Classification: {report['risk_level']}")
+            print(f"● Warnings Triggered: {report['warning_count']}")
+            print(f"● Altman Z-Score    : {report.get('altman_z')} ({report.get('altman_zone')})")
+            sloan_desc = 'High Accruals Anomaly' if report.get('sloan_accrual', 0) > 0.1 else 'Cash-Flow Backed'
+            print(f"● Sloan Net Accrual : {report.get('sloan_accrual')} ({sloan_desc})")
+            if report.get('beneish_m_score') is not None:
+                beneish_desc = 'Manipulator Suspect' if report.get('beneish_is_manipulator') else 'Unlikely Manipulator'
+                print(f"● Beneish M-Score   : {report.get('beneish_m_score')} ({beneish_desc})")
+            print("-" * 75)
+            print("[Forensic Diagnostic Findings & Evidence]:")
+            if report['warnings']:
+                for item in report['warnings']:
+                    print(f"  ❌ {item}")
+            else:
+                print("  ✅ Financial reconciliations are solid; all forensic metrics in safe zones.")
+        print("=" * 75 + "\n")
 
         return report
 
     def scan_all_stocks(self, fy: str = "", form: str = "", all_years: bool = False, output_report: str = ""):
-        """使用 DuckDB + ForensicEvaluator 向量化引擎秒级全量扫描美股数万家公司"""
+        """Vectorized forensic audit engine scanning tens of thousands of US public companies via DuckDB (English default)"""
         self._ensure_db()
+        zh = is_zh()
         out_file = output_report or self.output_report
-        mode_desc = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR} 历年所有申报记录 (跨10年完整历史数据)" if all_years or fy.lower() == 'all' else (f"{fy} 财年数据" if fy else "全美股所有公司最新披露数据")
+        if zh:
+            mode_desc = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR} 历年所有申报记录 (跨10年完整历史数据)" if all_years or fy.lower() == 'all' else (f"{fy} 财年数据" if fy else "全美股所有公司最新披露数据")
+        else:
+            mode_desc = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR} Historical filings (10-year dataset)" if all_years or fy.lower() == 'all' else (f"FY {fy} filings" if fy else "Latest filings across all US public companies")
         
-        print("\n" + "=" * 70)
-        print(f"[*] 启动 DuckDB + ForensicEvaluator 极速向量化扫描引擎...")
-        print(f"[*] 扫描范围: {mode_desc} | 报表类型: {form if form else '10-K & 10-Q'}")
-        print("=" * 70 + "\n")
+        print("\n" + "=" * 75)
+        banner_msg = "[*] Initializing DuckDB + ForensicEvaluator vectorized forensic audit engine..." if not zh else "[*] 启动 DuckDB + ForensicEvaluator 极速向量化扫描引擎..."
+        scope_msg = f"[*] Scope: {mode_desc} | Filing Types: {form if form else '10-K & 10-Q'}" if not zh else f"[*] 扫描范围: {mode_desc} | 报表类型: {form if form else '10-K & 10-Q'}"
+        print(banner_msg)
+        print(scope_msg)
+        print("=" * 75 + "\n")
 
         t0 = time.time()
         con = duckdb.connect(self.db_path, read_only=True)
@@ -280,14 +331,21 @@ class USStockFraudDetector:
         df_raw = con.execute(query).df()
         con.close()
 
-        print(f"[+] DuckDB 湖仓聚合完成，耗时 {time.time()-t0:.2f} 秒，提取 {len(df_raw):,} 份财报记录。")
-        print("[*] 正在执行全量向量化法务排雷算法与多模型预测...")
+        if zh:
+            print(f"[+] DuckDB 湖仓聚合完成，耗时 {time.time()-t0:.2f} 秒，提取 {len(df_raw):,} 份财报记录。")
+            print("[*] 正在执行全量向量化法务排雷算法与多模型预测...")
+        else:
+            print(f"[+] DuckDB query completed in {time.time()-t0:.2f}s, retrieved {len(df_raw):,} filings.")
+            print("[*] Executing vectorized forensic accounting algorithms & econometric models...")
 
         t_eval = time.time()
         df_scored = ForensicEvaluator.evaluate_dataframe(df_raw, entity_col='cik', time_col='period')
-        print(f"[+] 向量化评估完毕，耗时 {time.time()-t_eval:.2f} 秒！")
+        if zh:
+            print(f"[+] 向量化评估完毕，耗时 {time.time()-t_eval:.2f} 秒！")
+        else:
+            print(f"[+] Vectorized forensic evaluation completed in {time.time()-t_eval:.2f}s!")
 
-        # 计算实际覆盖的年份区间 (按主体年份统计，过滤个别迟交补报噪点)
+        # 计算实际覆盖的年份区间
         periods_str = df_scored['period'].astype(str).str[:4]
         valid_years = periods_str.value_counts()
         mainstream_years = valid_years[valid_years >= 50].index.sort_values()
@@ -298,10 +356,10 @@ class USStockFraudDetector:
             actual_min_y = "2016"
             actual_max_y = "2026"
 
-        # 动态智能命名报告文件 (若未指定自定义路径或为默认路径)
-        if not output_report or "美股上市公司财报造假风险扫描榜单.xlsx" in output_report:
+        # 动态智能命名报告文件
+        if not output_report or "美股上市公司财报造假风险扫描榜单.xlsx" in output_report or "US_Stock_Forensic_Audit_Report.xlsx" in output_report:
             out_file = generate_report_filename(
-                prefix="美股上市公司排雷榜单",
+                prefix="" if not zh else "美股上市公司排雷榜单",
                 fy=fy,
                 all_years=all_years,
                 actual_min_y=actual_min_y,
@@ -310,7 +368,6 @@ class USStockFraudDetector:
         else:
             out_file = output_report
 
-        # 整理导出列 (包含清晰直白的排雷诊断结论与具体成因 Notes)
         df_out = df_scored[[
             'cik', 'name', 'fy', 'period', 'form',
             'total_risk_score', 'risk_level', 'diagnostic_summary', 'risk_reasons_notes', 'hit_risk_count',
@@ -319,101 +376,157 @@ class USStockFraudDetector:
             'sales', 'net_income', 'cfo', 'assets', 'equity', 'goodwill'
         ]].copy()
 
-        df_out['营业收入_百万美元'] = (df_out['sales'].fillna(0) / 1e6).round(2)
-        df_out['净利润_百万美元'] = (df_out['net_income'].fillna(0) / 1e6).round(2)
-        df_out['经营现金流_百万美元'] = (df_out['cfo'].fillna(0) / 1e6).round(2)
-        df_out['总资产_百万美元'] = (df_out['assets'].fillna(0) / 1e6).round(2)
-        df_out['股东权益_百万美元'] = (df_out['equity'].fillna(0) / 1e6).round(2)
-        df_out['商誉_百万美元'] = (df_out['goodwill'].fillna(0) / 1e6).round(2)
+        if zh:
+            df_out['营业收入_百万美元'] = (df_out['sales'].fillna(0) / 1e6).round(2)
+            df_out['净利润_百万美元'] = (df_out['net_income'].fillna(0) / 1e6).round(2)
+            df_out['经营现金流_百万美元'] = (df_out['cfo'].fillna(0) / 1e6).round(2)
+            df_out['总资产_百万美元'] = (df_out['assets'].fillna(0) / 1e6).round(2)
+            df_out['股东权益_百万美元'] = (df_out['equity'].fillna(0) / 1e6).round(2)
+            df_out['商誉_百万美元'] = (df_out['goodwill'].fillna(0) / 1e6).round(2)
+        else:
+            df_out['Revenue_M'] = (df_out['sales'].fillna(0) / 1e6).round(2)
+            df_out['Net_Income_M'] = (df_out['net_income'].fillna(0) / 1e6).round(2)
+            df_out['Operating_Cash_M'] = (df_out['cfo'].fillna(0) / 1e6).round(2)
+            df_out['Total_Assets_M'] = (df_out['assets'].fillna(0) / 1e6).round(2)
+            df_out['Total_Equity_M'] = (df_out['equity'].fillna(0) / 1e6).round(2)
+            df_out['Goodwill_M'] = (df_out['goodwill'].fillna(0) / 1e6).round(2)
         df_out = df_out.drop(columns=['sales', 'net_income', 'cfo', 'assets', 'equity', 'goodwill'])
 
-        # -------------------------------------------------------------
-        # 核心架构：以【公司 (Company/CIK)】为核心主键排列，输出清晰诊断 Notes
-        # -------------------------------------------------------------
-        # 1. 构建【公司排雷总榜 (Company Summary)】：每家公司独占一行
         df_latest_by_company = df_out.sort_values(by='period', ascending=False).groupby('cik', as_index=False).first()
 
-        # 计算公司级跨期画像：历史最高风险、审计总期数
+        max_risk_col = '历史最高风险评分' if zh else 'Max_Historical_Risk_Score'
+        count_col = '纳入审计财报期数' if zh else 'Filings_Audited_Count'
         agg_stats = df_out.groupby('cik').agg(
-            历史最高风险评分=('total_risk_score', 'max'),
-            纳入审计财报期数=('period', 'count')
+            **{
+                max_risk_col: ('total_risk_score', 'max'),
+                count_col: ('period', 'count')
+            }
         ).reset_index()
 
         df_company_summary = pd.merge(df_latest_by_company, agg_stats, on='cik', how='left')
-
-        # 排序：优先按当前最新综合风险分倒序，相同时看历史最高风险
         df_company_summary = df_company_summary.sort_values(
-            by=['total_risk_score', '历史最高风险评分'],
+            by=['total_risk_score', max_risk_col],
             ascending=[False, False]
         )
 
-        df_company_summary = df_company_summary.rename(columns={
-            'cik': 'CIK',
-            'name': '公司名称',
-            'period': '最新申报期',
-            'fy': '最新财年',
-            'form': '最新报表类型',
-            'total_risk_score': '当前综合风险评分',
-            'risk_level': '当前风险等级',
-            'diagnostic_summary': '排雷诊断结论',
-            'risk_reasons_notes': '具体风险成因与排雷证据说明(Notes)',
-            'hit_risk_count': '当前预警项数',
-            'altman_z_score': '最新Altman_Z',
-            'altman_zone': '最新Z分区间',
-            'sloan_accrual': '最新Sloan净应计',
-            'beneish_m_score': '最新Beneish_M',
-            'beneish_is_manipulator': '最新疑似操纵'
-        })
-
-        # 2. 构建【公司历年穿透明细 (Filings Timeline by Company)】：
-        # 同一家公司的历年 10-K/10-Q 连续紧挨排列，时间倒序追踪财务异化轨迹
-        df_out['公司最高风险分'] = df_out.groupby('cik')['total_risk_score'].transform('max')
-        df_filings_by_company = df_out.sort_values(
-            by=['公司最高风险分', 'cik', 'period'],
-            ascending=[False, True, False]
-        ).drop(columns=['公司最高风险分'])
-
-        df_filings_by_company = df_filings_by_company.rename(columns={
-            'cik': 'CIK',
-            'name': '公司名称',
-            'period': '财报报告期',
-            'fy': '财年',
-            'form': '申报类型',
-            'total_risk_score': '当期风险评分',
-            'risk_level': '当期风险等级',
-            'diagnostic_summary': '排雷诊断结论',
-            'risk_reasons_notes': '当期具体风险成因与排雷证据说明(Notes)',
-            'hit_risk_count': '当期预警项数',
-            'altman_z_score': 'Altman_Z分值',
-            'altman_zone': 'Z分区间',
-            'sloan_accrual': 'Sloan净应计',
-            'beneish_m_score': 'Beneish_M分值',
-            'beneish_is_manipulator': '疑似报表操纵'
-        })
-
-        # 3. 构建【高危操纵关注专区 (High Risk Watchlist)】
-        df_red_flags = df_company_summary[df_company_summary['当前综合风险评分'] >= 50].copy()
-
-        # 根据是否为多年度历年模式自适应调整 Sheet 顺序
-        is_multi_year = all_years or (fy and fy.lower() == 'all') or (actual_min_y != actual_max_y)
-        if is_multi_year:
-            # 历年大排查模式下，首工作表优先展示同一家公司的跨年度历年穿透明细
-            sheets_data = {
-                f"公司历年穿透明细({actual_min_y}-{actual_max_y})": df_filings_by_company,
-                "美股上市公司排雷总榜": df_company_summary,
-                "高危操纵关注名单": df_red_flags
+        if zh:
+            rename_summary = {
+                'cik': 'CIK',
+                'name': '公司名称',
+                'period': '最新申报期',
+                'fy': '最新财年',
+                'form': '最新报表类型',
+                'total_risk_score': '当前综合风险评分',
+                'risk_level': '当前风险等级',
+                'diagnostic_summary': '排雷诊断结论',
+                'risk_reasons_notes': '具体风险成因与排雷证据说明(Notes)',
+                'hit_risk_count': '当前预警项数',
+                'altman_z_score': '最新Altman_Z',
+                'altman_zone': '最新Z分区间',
+                'sloan_accrual': '最新Sloan净应计',
+                'beneish_m_score': '最新Beneish_M',
+                'beneish_is_manipulator': '最新疑似操纵'
             }
         else:
-            sheets_data = {
-                "美股上市公司排雷总榜": df_company_summary,
-                "公司历年报表穿透明细": df_filings_by_company,
-                "高危操纵关注名单": df_red_flags
+            rename_summary = {
+                'cik': 'CIK',
+                'name': 'Company_Name',
+                'period': 'Latest_Period',
+                'fy': 'Latest_FY',
+                'form': 'Latest_Form',
+                'total_risk_score': 'Total_Risk_Score',
+                'risk_level': 'Risk_Level',
+                'diagnostic_summary': 'Diagnostic_Summary',
+                'risk_reasons_notes': 'Forensic_Evidence_Notes',
+                'hit_risk_count': 'Warning_Count',
+                'altman_z_score': 'Altman_Z',
+                'altman_zone': 'Altman_Zone',
+                'sloan_accrual': 'Sloan_Accrual',
+                'beneish_m_score': 'Beneish_M',
+                'beneish_is_manipulator': 'Is_Manipulator'
             }
+        df_company_summary = df_company_summary.rename(columns=rename_summary)
+
+        temp_max_col = '_max_risk'
+        df_out[temp_max_col] = df_out.groupby('cik')['total_risk_score'].transform('max')
+        df_filings_by_company = df_out.sort_values(
+            by=[temp_max_col, 'cik', 'period'],
+            ascending=[False, True, False]
+        ).drop(columns=[temp_max_col])
+
+        if zh:
+            rename_filings = {
+                'cik': 'CIK',
+                'name': '公司名称',
+                'period': '财报报告期',
+                'fy': '财年',
+                'form': '申报类型',
+                'total_risk_score': '当期风险评分',
+                'risk_level': '当期风险等级',
+                'diagnostic_summary': '排雷诊断结论',
+                'risk_reasons_notes': '当期具体风险成因与排雷证据说明(Notes)',
+                'hit_risk_count': '当期预警项数',
+                'altman_z_score': 'Altman_Z分值',
+                'altman_zone': 'Z分区间',
+                'sloan_accrual': 'Sloan净应计',
+                'beneish_m_score': 'Beneish_M分值',
+                'beneish_is_manipulator': '疑似报表操纵'
+            }
+        else:
+            rename_filings = {
+                'cik': 'CIK',
+                'name': 'Company_Name',
+                'period': 'Period',
+                'fy': 'FY',
+                'form': 'Form',
+                'total_risk_score': 'Risk_Score',
+                'risk_level': 'Risk_Level',
+                'diagnostic_summary': 'Diagnostic_Summary',
+                'risk_reasons_notes': 'Forensic_Evidence_Notes',
+                'hit_risk_count': 'Warning_Count',
+                'altman_z_score': 'Altman_Z',
+                'altman_zone': 'Altman_Zone',
+                'sloan_accrual': 'Sloan_Accrual',
+                'beneish_m_score': 'Beneish_M',
+                'beneish_is_manipulator': 'Is_Manipulator'
+            }
+        df_filings_by_company = df_filings_by_company.rename(columns=rename_filings)
+
+        score_col = '当前综合风险评分' if zh else 'Total_Risk_Score'
+        df_red_flags = df_company_summary[df_company_summary[score_col] >= 50].copy()
+
+        is_multi_year = all_years or (fy and fy.lower() == 'all') or (actual_min_y != actual_max_y)
+        if zh:
+            if is_multi_year:
+                sheets_data = {
+                    f"公司历年穿透明细({actual_min_y}-{actual_max_y})": df_filings_by_company,
+                    "美股上市公司排雷总榜": df_company_summary,
+                    "高危操纵关注名单": df_red_flags
+                }
+            else:
+                sheets_data = {
+                    "美股上市公司排雷总榜": df_company_summary,
+                    "公司历年报表穿透明细": df_filings_by_company,
+                    "高危操纵关注名单": df_red_flags
+                }
+        else:
+            if is_multi_year:
+                sheets_data = {
+                    f"Timeline_{actual_min_y}_{actual_max_y}": df_filings_by_company,
+                    "Company_Forensic_Summary": df_company_summary,
+                    "High_Risk_Watchlist": df_red_flags
+                }
+            else:
+                sheets_data = {
+                    "Company_Forensic_Summary": df_company_summary,
+                    "Filings_Timeline": df_filings_by_company,
+                    "High_Risk_Watchlist": df_red_flags
+                }
 
         actual_output = safe_save_excel(sheets_data, out_file)
 
-        # 同步生成极具阅读美感与直观透彻的 Reader-Friendly Markdown 总结研报
-        md_file = actual_output.replace('.xlsx', '_排雷总结研报.md')
+        summary_md_suffix = "_排雷总结研报.md" if zh else "_Forensic_Executive_Summary.md"
+        md_file = actual_output.replace('.xlsx', summary_md_suffix)
         actual_md_path = generate_market_scan_summary_md(
             scan_meta={"min_year": actual_min_y, "max_year": actual_max_y, "total_filings": len(df_filings_by_company)},
             df_top_risks=df_company_summary,
@@ -421,22 +534,37 @@ class USStockFraudDetector:
             output_md_path=md_file
         )
 
-        print("\n" + "=" * 70)
-        print("🎉 【美股全市场财务造假与粉饰风险扫描完成！】")
-        print("=" * 70)
-        print(f"● 实际覆盖区间: {actual_min_y} 年 ~ {actual_max_y} 年 (共 {len(df_filings_by_company):,} 份财报)")
-        print(f"● 扫描覆盖公司: {len(df_company_summary):,} 家上市公司 (以公司为核心排列)")
-        print(f"● 红色高危公司: {len(df_company_summary[df_company_summary['当前综合风险评分'] >= 50]):,} 家")
-        print(f"● 橙色关注公司: {len(df_company_summary[(df_company_summary['当前综合风险评分'] >= 30) & (df_company_summary['当前综合风险评分'] < 50)]):,} 家")
-        print(f"● 黄色提示公司: {len(df_company_summary[(df_company_summary['当前综合风险评分'] >= 15) & (df_company_summary['当前综合风险评分'] < 30)]):,} 家")
-        print(f"● 绿色安全公司: {len(df_company_summary[df_company_summary['当前综合风险评分'] < 15]):,} 家")
-        print("-" * 70)
-        print(f"● 🌟 决策研报: {os.path.abspath(actual_md_path)} (强烈推荐优先阅读！直观优雅)")
-        print(f"● 📊 全景底表: {os.path.abspath(actual_output)} (Excel 多Sheet全量穿透底表)")
-        print(f"  - Sheet 1: {'公司历年穿透明细 (跨年度连续排列)' if is_multi_year else '美股上市公司排雷总榜 (每家公司独立一行)'}")
-        print("=" * 70)
-        print("\n【美股风险评分 TOP 20 公司排行榜】:")
-        print(df_company_summary[["CIK", "公司名称", "最新申报期", "当前综合风险评分", "当前风险等级", "排雷诊断结论"]].head(20).to_string(index=False))
+        print("\n" + "=" * 75)
+        if zh:
+            print("🎉 【美股全市场财务造假与粉饰风险扫描完成！】")
+            print("=" * 75)
+            print(f"● 实际覆盖区间: {actual_min_y} 年 ~ {actual_max_y} 年 (共 {len(df_filings_by_company):,} 份财报)")
+            print(f"● 扫描覆盖公司: {len(df_company_summary):,} 家上市公司 (以公司为核心排列)")
+            print(f"● 红色高危公司: {len(df_company_summary[df_company_summary[score_col] >= 50]):,} 家")
+            print(f"● 橙色关注公司: {len(df_company_summary[(df_company_summary[score_col] >= 30) & (df_company_summary[score_col] < 50)]):,} 家")
+            print(f"● 黄色提示公司: {len(df_company_summary[(df_company_summary[score_col] >= 15) & (df_company_summary[score_col] < 30)]):,} 家")
+            print(f"● 绿色安全公司: {len(df_company_summary[df_company_summary[score_col] < 15]):,} 家")
+            print("-" * 75)
+            print(f"● 🌟 决策研报: {os.path.abspath(actual_md_path)} (强烈推荐优先阅读！直观优雅)")
+            print(f"● 📊 全景底表: {os.path.abspath(actual_output)} (Excel 多Sheet全量穿透底表)")
+            print("=" * 75)
+            print("\n【美股风险评分 TOP 20 公司排行榜】:")
+            print(df_company_summary[["CIK", "公司名称", "最新申报期", "当前综合风险评分", "当前风险等级", "排雷诊断结论"]].head(20).to_string(index=False))
+        else:
+            print("🎉 [Full US Market Forensic Fraud Risk Scan Completed!]")
+            print("=" * 75)
+            print(f"● Actual Period Span : FY {actual_min_y} ~ {actual_max_y} ({len(df_filings_by_company):,} filings)")
+            print(f"● Companies Screened : {len(df_company_summary):,} public companies")
+            print(f"● Red Distress       : {len(df_company_summary[df_company_summary[score_col] >= 50]):,} companies")
+            print(f"● Orange Alert       : {len(df_company_summary[(df_company_summary[score_col] >= 30) & (df_company_summary[score_col] < 50)]):,} companies")
+            print(f"● Yellow Caution     : {len(df_company_summary[(df_company_summary[score_col] >= 15) & (df_company_summary[score_col] < 30)]):,} companies")
+            print(f"● Green Safe         : {len(df_company_summary[df_company_summary[score_col] < 15]):,} companies")
+            print("-" * 75)
+            print(f"● 🌟 Executive Summary: {os.path.abspath(actual_md_path)} (Visual Markdown brief)")
+            print(f"● 📊 Master Dataset   : {os.path.abspath(actual_output)} (Excel multi-sheet workbook)")
+            print("=" * 75)
+            print("\n[Top 20 Forensic Risk Rankings]:")
+            print(df_company_summary[["CIK", "Company_Name", "Latest_Period", "Total_Risk_Score", "Risk_Level", "Diagnostic_Summary"]].head(20).to_string(index=False))
 
 
 def main():

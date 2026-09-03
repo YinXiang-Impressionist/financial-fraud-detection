@@ -134,7 +134,7 @@ def test_single_stock_evaluator():
 
     report = ForensicEvaluator.evaluate_single(bad_company, prev_record=prev_company)
     assert report['total_risk_score'] >= 50, "多重暴雷公司评分应 >= 50"
-    assert report['risk_level'] == "[极危] 红色高危"
+    assert report['risk_level'] in ["[极危] 红色高危", "[Critical] Red Distress"]
     assert report['warning_count'] >= 5
 
 

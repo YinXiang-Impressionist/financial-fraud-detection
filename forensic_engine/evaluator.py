@@ -16,6 +16,12 @@ from .rules.balance_sheet_rules import check_balance_sheet_rules, apply_balance_
 from .rules.income_statement_rules import check_income_statement_rules, apply_income_statement_dataframe
 from .rules.cash_flow_rules import check_cash_flow_rules, apply_cash_flow_dataframe
 from .tag_mapping import normalize_dataframe_columns, normalize_record_dict
+import os
+
+
+def is_zh_mode() -> bool:
+    """Check if Chinese output mode is activated via environment variable FORENSIC_LANG"""
+    return os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
 
 
 class ForensicEvaluator:
@@ -34,6 +40,8 @@ class ForensicEvaluator:
 
         all_warnings: List[str] = []
         total_score = 0
+
+        zh = is_zh_mode()
 
         # ----------------------------------------------------
         # 1. 数理统计模型 1: 贝尼斯 M-Score 8 变量操纵预测
@@ -54,7 +62,8 @@ class ForensicEvaluator:
             )
             if beneish_res.get('is_manipulator'):
                 total_score += 25
-                all_warnings.append(f"【Beneish操纵高危】8变量M-Score达 {beneish_res['m_score']} (显著突破 -1.78 统计阈值)，存在极大概率系统性操纵")
+                b_msg = f"【Beneish操纵高危】8变量M-Score达 {beneish_res['m_score']} (显著突破 -1.78 统计阈值)，存在极大概率系统性操纵" if zh else f"[Beneish High Manipulation Risk] 8-variable M-Score reached {beneish_res['m_score']} (breached -1.78 threshold), indicating high probability of systematic manipulation"
+                all_warnings.append(b_msg)
 
         # ----------------------------------------------------
         # 2. 数理统计模型 2: 修正琼斯模型 (Modified Jones) 可操纵应计利润
@@ -74,7 +83,8 @@ class ForensicEvaluator:
             )
             if jones_res.get('is_abnormal_discretionary_accrual'):
                 total_score += 20
-                all_warnings.append(f"【可操纵应计利润异常】修正琼斯模型DA残差达 {jones_res['discretionary_accruals']:.4f} (>0.08警戒线)，存在通过跨期估计人为粉饰利润证据")
+                j_msg = f"【可操纵应计利润异常】修正琼斯模型DA残差达 {jones_res['discretionary_accruals']:.4f} (>0.08警戒线)，存在通过跨期估计人为粉饰利润证据" if zh else f"[Abnormal Discretionary Accruals] Modified Jones DA residual reached {jones_res['discretionary_accruals']:.4f} (>0.08), showing managerial cross-period earnings manipulation"
+                all_warnings.append(j_msg)
 
         # ----------------------------------------------------
         # 3. 数理统计模型 3: 跨科目统计背离度 (Decoupling Metrics)
@@ -106,7 +116,8 @@ class ForensicEvaluator:
         )
         if altman_res['is_distressed']:
             total_score += 20
-            all_warnings.append(f"【Altman破产危机】Z-Score为 {altman_res['z_score']}，落入红色危险破产区，舞弊动机迫切")
+            a_msg = f"【Altman破产危机】Z-Score为 {altman_res['z_score']}，落入红色危险破产区，舞弊动机迫切" if zh else f"[Altman Distress Warning] Z-Score is {altman_res['z_score']}, fell into red distress zone (<1.81) with elevated default risk"
+            all_warnings.append(a_msg)
 
         # ----------------------------------------------------
         # 5. 数理统计模型 5: Sloan 净应计异象
@@ -118,7 +129,8 @@ class ForensicEvaluator:
         )
         if sloan_res['is_high_accrual']:
             total_score += 15
-            all_warnings.append(f"【高应计异象】Sloan净应计为 {sloan_res['sloan_accrual']} (>0.10)，账面富贵缺乏真实真金白银沉淀")
+            s_msg = f"【高应计异象】Sloan净应计为 {sloan_res['sloan_accrual']} (>0.10)，账面富贵缺乏真实真金白银沉淀" if zh else f"[High Accrual Anomaly] Sloan Net Accrual is {sloan_res['sloan_accrual']} (>0.10), accounting profits lack genuine operating cash flow"
+            all_warnings.append(s_msg)
 
         # ----------------------------------------------------
         # 6. 硬核报表勾稽与资产真实性规则 (存贷双高、商誉悬顶、资不抵债、明股实债)
@@ -142,6 +154,9 @@ class ForensicEvaluator:
         # 7. 官方确凿重大重述 (仅限 1年内承认 Big-R，非新闻人事)
         # ----------------------------------------------------
         if curr.get('has_item_402_restatement'):
+            total_score += 30
+            r_msg = "【重大重述实锤】官方披露 Item 4.02 Form 8-K 承认近期财务报表不可信赖并发生重大差错重述" if zh else "[Big-R Restatement Disclosed] Official Form 8-K Item 4.02 filed stating past financial statements cannot be relied upon"
+            all_warnings.append(r_msg)
             days = curr.get('recent_restatement_days')
             if days is not None and days <= 365:
                 total_score += 20
@@ -160,26 +175,29 @@ class ForensicEvaluator:
 
         # 分值封顶 100
         final_score = min(100, total_score)
+        zh = is_zh_mode()
         if final_score >= 50:
-            risk_level = "[极危] 红色高危"
-            diag_summary = "【极危】存在重大系统性财务操纵与现金流背离，破产或爆雷风险极大"
+            risk_level = "[极危] 红色高危" if zh else "[Critical] Red Distress"
+            diag_summary = "【极危】存在重大系统性财务操纵与现金流背离，破产或爆雷风险极大" if zh else "[Critical] Major systematic accounting manipulation & cash flow decoupling detected; extreme risk of distress."
         elif final_score >= 30:
-            risk_level = "[预警] 橙色关注"
-            diag_summary = "【预警】多项关键财务勾稽指标显著异化，存在较强人为粉饰或资产虚胖嫌疑"
+            risk_level = "[预警] 橙色关注" if zh else "[Warning] Orange Alert"
+            diag_summary = "【预警】多项关键财务勾稽指标显著异化，存在较强人为粉饰或资产虚胖嫌疑" if zh else "[Warning] Key financial reconciliations severely distorted; high suspicion of artificial smoothing or inflated assets."
         elif final_score >= 15:
-            risk_level = "[提示] 黄色提示"
-            diag_summary = "【提示】财务指标出现轻度异常或处于观察期，建议持续跟踪"
+            risk_level = "[提示] 黄色提示" if zh else "[Notice] Yellow Caution"
+            diag_summary = "【提示】财务指标出现轻度异常或处于观察期，建议持续跟踪" if zh else "[Notice] Mild financial anomalies detected or under observation; continuous tracking advised."
         else:
-            risk_level = "[稳健] 绿色正常"
-            diag_summary = "【稳健】财务三张表勾稽严密稳健，各项计量排雷模型均处于安全区间"
+            risk_level = "[稳健] 绿色正常" if zh else "[Safe] Green Normal"
+            diag_summary = "【稳健】财务三张表勾稽严密稳健，各项计量排雷模型均处于安全区间" if zh else "[Safe] Financial statements are rigorously reconciled; all econometric forensic models in safe zones."
 
         notes_lines = []
         if is_financial:
-            notes_lines.append("ℹ️ 【金融机构特性提示】该实体属于银行/证券/保险等金融机构 (SIC 6xxx)，报表资产负债与现金流结构具有行业特殊性，传统商业企业 Beneish / Altman Z 等指标仅供参考。")
+            notice_msg = "ℹ️ 【金融机构特性提示】该实体属于银行/证券/保险等金融机构 (SIC 6xxx)，报表资产负债与现金流结构具有行业特殊性，传统商业企业 Beneish / Altman Z 等指标仅供参考。" if zh else "ℹ️ [Financial Institution Notice] Entity belongs to Banking/Insurance/Brokerage sector (SIC 6xxx). Traditional commercial metrics (Beneish, Altman Z) are for reference only."
+            notes_lines.append(notice_msg)
         if all_warnings:
             notes_lines.extend([f"{i+1}. {w}" for i, w in enumerate(all_warnings)])
         else:
-            notes_lines.append("✅ 财务勾稽严密，未命中任何系统性财务造假与粉饰红旗。")
+            safe_msg = "✅ 财务勾稽严密，未命中任何系统性财务造假与粉饰红旗。" if zh else "✅ Financial statements are rigorously reconciled; zero systemic forensic red flags triggered."
+            notes_lines.append(safe_msg)
         notes_str = "\n".join(notes_lines)
 
         return {
@@ -204,7 +222,7 @@ class ForensicEvaluator:
     @classmethod
     def evaluate_dataframe(cls, df: pd.DataFrame, entity_col: str = 'cik', time_col: str = 'period') -> pd.DataFrame:
         """
-        全量向量化批量打分 (100% 基于统计分布与计量模型)
+        全量向量化批量打分 (100% 基于统计分布与计量模型，支持中英双语输出)
         """
         df_norm = normalize_dataframe_columns(df)
 
@@ -235,43 +253,57 @@ class ForensicEvaluator:
         total_score = np.clip(raw_score, 0, 100)
         df_norm['total_risk_score'] = total_score
 
-        df_norm['risk_level'] = np.where(
-            total_score >= 50,
-            "[极危] 红色高危",
-            np.where(
-                total_score >= 30,
-                "[预警] 橙色关注",
-                np.where(total_score >= 15, "[提示] 黄色提示", "[稳健] 绿色正常")
+        zh = is_zh_mode()
+        if zh:
+            df_norm['risk_level'] = np.where(
+                total_score >= 50, "[极危] 红色高危",
+                np.where(total_score >= 30, "[预警] 橙色关注",
+                         np.where(total_score >= 15, "[提示] 黄色提示", "[稳健] 绿色正常"))
             )
-        )
-
-        df_norm['diagnostic_summary'] = np.where(
-            total_score >= 50,
-            "【极危】存在重大系统性财务操纵与现金流背离，破产或爆雷风险极大",
-            np.where(
-                total_score >= 30,
-                "【预警】多项关键财务勾稽指标显著异化，存在较强人为粉饰或资产虚胖嫌疑",
-                np.where(
-                    total_score >= 15,
-                    "【提示】财务指标出现轻度异常或处于观察期，建议持续跟踪",
-                    "【稳健】财务三张表勾稽严密稳健，各项计量排雷模型均处于安全区间"
-                )
+            df_norm['diagnostic_summary'] = np.where(
+                total_score >= 50, "【极危】存在重大系统性财务操纵与现金流背离，破产或爆雷风险极大",
+                np.where(total_score >= 30, "【预警】多项关键财务勾稽指标显著异化，存在较强人为粉饰或资产虚胖嫌疑",
+                         np.where(total_score >= 15, "【提示】财务指标出现轻度异常或处于观察期，建议持续跟踪",
+                                  "【稳健】财务三张表勾稽严密稳健，各项计量排雷模型均处于安全区间"))
             )
-        )
-
-        flag_details = [
-            ('beneish_is_manipulator', "❌【Beneish模型操纵高危】8变量M-Score突破-1.78警戒阈值，涉嫌系统性虚构收入与毛利跨期操纵"),
-            ('altman_is_distressed', "❌【Altman破产危机】Z-Score落入红色危机区(<1.81)，陷入深重财务困境，造假动机迫切"),
-            ('sloan_is_high', "❌【Sloan高应计异象】应计利润占总资产比重超10%，账面富贵缺乏真实真金白银现金流支撑"),
-            ('flag_cfo_broken', "❌【净现比严重恶化断裂】净利润盈利但经营现金流大额净流出，盈利质量极度低下"),
-            ('flag_negative_equity', "❌【资不抵债危机】股东权益为负数，已陷入技术性破产"),
-            ('flag_cash_debt_anomaly', "❌【存贷双高异象】账面货币资金高占比同时背负巨额短期债务，警惕大额资金受限或虚假存单"),
-            ('flag_goodwill_burden', "❌【商誉极危悬顶】账面商誉占净资产比例超50%，面临大额商誉减值洗澡崩塌风险"),
-            ('flag_ar_anomaly', "❌【应收账款畸高】应收账款占收入比重反常扩张，警惕提前确认收入或向关联方虚构销售"),
-            ('flag_inv_overhang', "❌【存货滞销积压】存货周转急剧恶化，警惕滞销未足额计提存货跌价准备"),
-            ('flag_cip_anomaly', "❌【在建工程长期挂账】在建工程长期挂账不转固，涉嫌少计折旧以隐匿生产成本"),
-            ('flag_op_loss_masked', "❌【主营亏损掩盖】核心主营业务营业利润实质亏损，依靠非经常性损益粉饰最终净利")
-        ]
+            flag_details = [
+                ('beneish_is_manipulator', "❌【Beneish模型操纵高危】8变量M-Score突破-1.78警戒阈值，涉嫌系统性虚构收入与毛利跨期操纵"),
+                ('altman_is_distressed', "❌【Altman破产危机】Z-Score落入红色危机区(<1.81)，陷入深重财务困境，造假动机迫切"),
+                ('sloan_is_high', "❌【Sloan高应计异象】应计利润占总资产比重超10%，账面富贵缺乏真实真金白银现金流支撑"),
+                ('flag_cfo_broken', "❌【净现比严重恶化断裂】净利润盈利但经营现金流大额净流出，盈利质量极度低下"),
+                ('flag_negative_equity', "❌【资不抵债危机】股东权益为负数，已陷入技术性破产"),
+                ('flag_cash_debt_anomaly', "❌【存贷双高异象】账面货币资金高占比同时背负巨额短期债务，警惕大额资金受限或虚假存单"),
+                ('flag_goodwill_burden', "❌【商誉极危悬顶】账面商誉占净资产比例超50%，面临大额商誉减值洗澡崩塌风险"),
+                ('flag_ar_anomaly', "❌【应收账款畸高】应收账款占收入比重反常扩张，警惕提前确认收入或向关联方虚构销售"),
+                ('flag_inv_overhang', "❌【存货滞销积压】存货周转急剧恶化，警惕滞销未足额计提存货跌价准备"),
+                ('flag_cip_anomaly', "❌【在建工程长期挂账】在建工程长期挂账不转固，涉嫌少计折旧以隐匿生产成本"),
+                ('flag_op_loss_masked', "❌【主营亏损掩盖】核心主营业务营业利润实质亏损，依靠非经常性损益粉饰最终净利")
+            ]
+        else:
+            df_norm['risk_level'] = np.where(
+                total_score >= 50, "[Critical] Red Distress",
+                np.where(total_score >= 30, "[Warning] Orange Alert",
+                         np.where(total_score >= 15, "[Notice] Yellow Caution", "[Safe] Green Normal"))
+            )
+            df_norm['diagnostic_summary'] = np.where(
+                total_score >= 50, "[Critical] Major systematic accounting manipulation & cash flow decoupling detected; extreme risk of distress.",
+                np.where(total_score >= 30, "[Warning] Key financial reconciliations severely distorted; high suspicion of artificial smoothing or inflated assets.",
+                         np.where(total_score >= 15, "[Notice] Mild financial anomalies detected or under observation; continuous tracking advised.",
+                                  "[Safe] Financial statements are rigorously reconciled; all econometric forensic models in safe zones."))
+            )
+            flag_details = [
+                ('beneish_is_manipulator', "❌ [Beneish Manipulation Risk] 8-variable M-Score breached -1.78 threshold; systemic revenue or margin manipulation indicated."),
+                ('altman_is_distressed', "❌ [Altman Bankruptcy Distress] Z-Score fell into red distress zone (<1.81); severe financial insolvency risk."),
+                ('sloan_is_high', "❌ [Sloan High Accrual Anomaly] Net accruals exceed 10% of total assets; accounting profits lack genuine operating cash flow."),
+                ('flag_cfo_broken', "❌ [CFO Decoupling] Profitable net income accompanied by substantial operating cash outflow."),
+                ('flag_negative_equity', "❌ [Negative Equity / Insolvency] Stockholders' equity is negative; company is technically insolvent."),
+                ('flag_cash_debt_anomaly', "❌ [Cash-Debt Anomaly] High cash balance concurrent with heavy short-term interest debt; risk of encumbered funds."),
+                ('flag_goodwill_burden', "❌ [Goodwill Overhang] Goodwill exceeds 50% of net equity; high risk of catastrophic impairment."),
+                ('flag_ar_anomaly', "❌ [Inflated Receivables] Abnormal expansion of receivables relative to sales; possible channel stuffing or unearned revenue."),
+                ('flag_inv_overhang', "❌ [Inventory Deterioration] Inventory turnover plunged; risk of obsolete inventory and unbooked write-downs."),
+                ('flag_cip_anomaly', "❌ [Construction in Progress Overhang] Extended construction in progress without capitalization to hide operating costs."),
+                ('flag_op_loss_masked', "❌ [Core Operating Loss Masked] Core operating income is negative, masked by non-recurring items.")
+            ]
 
         if 'sic' in df_norm.columns:
             sic_s = pd.to_numeric(df_norm['sic'], errors='coerce')
@@ -288,12 +320,15 @@ class ForensicEvaluator:
         def build_notes(row):
             reasons = []
             if bool(row.get('is_financial_institution')):
-                reasons.append("ℹ️【金融机构特性提示】该实体属于银行/证券/保险等金融机构 (SIC 6xxx)，报表资产负债与现金流结构具有行业特殊性，传统商业企业 Beneish / Altman Z 等指标仅供参考。")
+                if zh:
+                    reasons.append("ℹ️【金融机构特性提示】该实体属于银行/证券/保险等金融机构 (SIC 6xxx)，报表资产负债与现金流结构具有行业特殊性，传统商业企业 Beneish / Altman Z 等指标仅供参考。")
+                else:
+                    reasons.append("ℹ️ [Financial Institution Notice] Entity belongs to Banking/Insurance/Brokerage sector (SIC 6xxx). Traditional commercial metrics (Beneish, Altman Z) are for reference only.")
             for col, desc in flag_details:
                 if bool(row.get(col)):
                     reasons.append(desc)
             if not reasons:
-                return "✅ 财务勾稽严密，未命中任何系统性财务造假与粉饰红旗。"
+                return "✅ 财务勾稽严密，未命中任何系统性财务造假与粉饰红旗。" if zh else "✅ Financial statements are rigorously reconciled; zero systemic forensic red flags triggered."
             return "\n".join([f"{i+1}. {r}" for i, r in enumerate(reasons)])
 
         df_norm['risk_reasons_notes'] = df_norm.apply(build_notes, axis=1)

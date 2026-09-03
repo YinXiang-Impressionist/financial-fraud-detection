@@ -28,6 +28,10 @@ DEFAULT_PARQUET_DIR = os.path.join(PROJECT_ROOT, "sec_parquet")
 DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "sec_financials.duckdb")
 
 
+def is_zh() -> bool:
+    return os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
+
+
 class SecToDuckDBPipeline:
     def __init__(self, zips_dir: str = "", parquet_dir: str = "", db_path: str = ""):
         self.zips_dir = os.path.abspath(zips_dir) if zips_dir else DEFAULT_ZIPS_DIR
@@ -140,26 +144,40 @@ class SecToDuckDBPipeline:
         
         con.close()
 
+        zh = is_zh()
         print("\n" + "=" * 65)
-        print("🎉 【DuckDB 湖仓构建完成！】")
-        print("=" * 65)
-        print(f"● 申报企业总数 (CIK) : {cik_count:,} 家公司")
-        print(f"● 申报财报总数 (sub) : {sub_count:,} 份报表")
-        print(f"● 财务数值事实 (num) : {num_count:,} 行数据 (全部挂载为高性能视图)")
-        print(f"● 数据库存储文件     : {self.db_path}")
+        if zh:
+            print("🎉 【DuckDB 湖仓构建完成！】")
+            print("=" * 65)
+            print(f"● 申报企业总数 (CIK) : {cik_count:,} 家公司")
+            print(f"● 申报财报总数 (sub) : {sub_count:,} 份报表")
+            print(f"● 财务数值事实 (num) : {num_count:,} 行数据 (全部挂载为高性能视图)")
+            print(f"● 数据库存储文件     : {self.db_path}")
+        else:
+            print("🎉 [DuckDB Financial Lakehouse Built Successfully!]")
+            print("=" * 65)
+            print(f"● Unique Entities (CIK) : {cik_count:,} public companies")
+            print(f"● Total Filings (sub)   : {sub_count:,} quarterly/annual reports")
+            print(f"● Numeric Facts (num)   : {num_count:,} fact rows (mounted as high-speed views)")
+            print(f"● Database File Path    : {self.db_path}")
         print("=" * 65)
 
     def run(self):
+        zh = is_zh()
         zip_files = sorted(glob.glob(os.path.join(self.zips_dir, "*.zip")))
         if not zip_files:
-            print(f"[-] 在 {self.zips_dir} 未找到任何 zip 文件！请先运行 sec_downloader.py。")
+            msg = f"[-] 在 {self.zips_dir} 未找到任何 zip 文件！请先运行 sec_downloader.py。" if zh else f"[-] No zip files found in {self.zips_dir}! Run sec_downloader.py first."
+            print(msg)
             return
 
         print("\n" + "=" * 65)
-        print(f"[*] 开始转换 {len(zip_files)} 个季度的 SEC 数据为 Parquet 格式")
+        banner = f"[*] 开始转换 {len(zip_files)} 个季度的 SEC 数据为 Parquet 格式" if zh else f"[*] Converting {len(zip_files)} quarters of SEC datasets to Parquet format"
+        print(banner)
         print("=" * 65)
 
-        for zf in tqdm(zip_files, desc="ETL 转换进度", unit="季度"):
+        etl_desc = "ETL 转换进度" if zh else "ETL Conversion"
+        etl_unit = "季度" if zh else "quarter"
+        for zf in tqdm(zip_files, desc=etl_desc, unit=etl_unit):
             self.extract_and_convert_zip(zf)
 
         self.create_unified_database()

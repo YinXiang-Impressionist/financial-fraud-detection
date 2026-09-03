@@ -70,21 +70,23 @@ from pipelines.lakehouse import (
 
 def check_lakehouse_ready(db_path: str = "", require_all_years: bool = False) -> tuple:
     """
-    检查本地 DuckDB 湖仓完整性与时间覆盖范围
-    返回: (is_ready: bool, status_message: str, row_count: int, min_year: int, max_year: int, year_count: int)
+    Validate local DuckDB Lakehouse integrity and chronological coverage.
+    Returns: (is_ready: bool, status_message: str, row_count: int, min_year: int, max_year: int, year_count: int)
     """
     target_db = db_path if db_path else DEFAULT_DB_PATH
+    zh = is_zh()
     if not os.path.exists(target_db):
-        return False, f"未找到数据库文件 ({os.path.basename(target_db)})", 0, 0, 0, 0
+        msg = f"未找到数据库文件 ({os.path.basename(target_db)})" if zh else f"Database file not found ({os.path.basename(target_db)})"
+        return False, msg, 0, 0, 0, 0
     try:
         import duckdb
         con = duckdb.connect(target_db, read_only=True)
         tables = [t[0] for t in con.execute("SHOW TABLES").fetchall()]
         if 'sub' not in tables or 'num' not in tables:
             con.close()
-            return False, "数据库表结构不完整 (缺失 sub/num 视图)", 0, 0, 0, 0
+            msg = "数据库表结构不完整 (缺失 sub/num 视图)" if zh else "Database schema incomplete (missing sub/num views)"
+            return False, msg, 0, 0, 0, 0
         
-        # 验证底层视图数据是否可读取并统计实际财报年份跨度 (过滤申报量极少的个别历史迟交补报噪点)
         row = con.execute("""
             WITH yr_stats AS (
                 SELECT try_cast(substr(cast(period as varchar), 1, 4) as int) as yr, count(*) as cnt
@@ -108,12 +110,16 @@ def check_lakehouse_ready(db_path: str = "", require_all_years: bool = False) ->
             y_cnt = row[3] or 1
 
             if require_all_years and (min_y > DEFAULT_START_YEAR + 1 or y_cnt < 8):
-                return False, f"本地仅包含 {min_y} 年数据 (共 {y_cnt} 个年份，缺失 {TEN_YEARS_SPAN_DESC} 跨10年历史年度数据包)", total_count, min_y, max_y, y_cnt
+                msg = f"本地仅包含 {min_y} 年数据 (共 {y_cnt} 个年份，缺失 {TEN_YEARS_SPAN_DESC} 跨10年历史年度数据包)" if zh else f"Local DB contains filings from {min_y} only ({y_cnt} fiscal years; missing historical decade {TEN_YEARS_SPAN_DESC})"
+                return False, msg, total_count, min_y, max_y, y_cnt
 
-            return True, f"数据完整 (覆盖 {min_y}-{max_y} 跨10年完整数据，共 {total_count:,} 份财报申报记录)", total_count, min_y, max_y, y_cnt
-        return False, "数据库记录数为空", 0, 0, 0, 0
+            msg = f"数据完整 (覆盖 {min_y}-{max_y} 跨10年完整数据，共 {total_count:,} 份财报申报记录)" if zh else f"Complete lakehouse (FY {min_y}-{max_y}, {total_count:,} quarterly/annual reports)"
+            return True, msg, total_count, min_y, max_y, y_cnt
+        msg = "数据库记录数为空" if zh else "Database contains 0 records"
+        return False, msg, 0, 0, 0, 0
     except Exception as e:
-        return False, f"底层 Parquet 数据缺失或读取异常: {e}", 0, 0, 0, 0
+        msg = f"底层 Parquet 数据缺失或读取异常: {e}" if zh else f"Underlying Parquet missing or corrupt: {e}"
+        return False, msg, 0, 0, 0, 0
 
 
 def ensure_lakehouse_ready(
@@ -126,47 +132,59 @@ def ensure_lakehouse_ready(
     require_all_years: bool = False
 ) -> bool:
     """
-    全自动保证本地湖仓可用：
-    1. 若已有完整数据，智能跳过下载与构建，秒级直接使用；
-    2. 若缺失数据或缺少历史年度，向用户给出透明容量提示并自动启动断点续传下载与 Parquet 湖仓构建。
+    Ensure local DuckDB Lakehouse is fully prepared and mounted.
+    Automatically skips downloading and parsing if clean data already exists.
     """
     target_db = db_path if db_path else DEFAULT_DB_PATH
     target_zips = zips_dir if zips_dir else DEFAULT_ZIPS_DIR
     target_parquet = parquet_dir if parquet_dir else DEFAULT_PARQUET_DIR
+    zh = is_zh()
 
     ready, msg, _, min_y, max_y, _ = check_lakehouse_ready(target_db, require_all_years=require_all_years)
     if ready and not force_download:
-        print(f"[+] 湖仓就绪检查通过: {msg}")
-        print("[+] 检测到本地已存在所需数据，自动跳过下载与构建，直接执行分析任务！\n")
+        pass_msg = f"[+] 湖仓就绪检查通过: {msg}" if zh else f"[+] Lakehouse integrity check passed: {msg}"
+        skip_msg = "[+] 检测到本地已存在所需数据，自动跳过下载与构建，直接执行分析任务！\n" if zh else "[+] Required local dataset is already in place. Skipping download & ETL, proceeding immediately!\n"
+        print(pass_msg)
+        print(skip_msg)
         return True
 
-    # 新用户首次开箱冷启动提示
+    # Cold start guidance
     if not os.path.exists(target_db) and not os.path.exists(target_zips):
         print("\n" + "=" * 70)
-        print("💡 【首次运行 SEC 本地湖仓初始化提示】")
-        print(f"● 检测到当前环境为首次运行，本地尚未构建离线 SEC 财务湖仓。")
-        print(f"● 全美股全量历史大排查约需从 SEC 官方下载 {start_year}-{end_year} 历史数据包 (约 1.4GB 压缩包)。")
-        print(f"● 系统支持全自动断点续传与极速 Parquet 分区转换，单次构建后永久秒级本地复用。")
+        if zh:
+            print("💡 【首次运行 SEC 本地湖仓初始化提示】")
+            print(f"● 检测到当前环境为首次运行，本地尚未构建离线 SEC 财务湖仓。")
+            print(f"● 全美股全量历史大排查约需从 SEC 官方下载 {start_year}-{end_year} 历史数据包 (约 1.4GB 压缩包)。")
+            print(f"● 系统支持全自动断点续传与极速 Parquet 分区转换，单次构建后永久秒级本地复用。")
+        else:
+            print("💡 [First-Time SEC Financial Lakehouse Setup Notice]")
+            print(f"● Local offline SEC financial lakehouse is not yet built.")
+            print(f"● Full historical scan requires downloading {start_year}-{end_year} SEC DERA packages (~1.4GB compressed).")
+            print(f"● Automatic resumable downloading & Parquet partitioning will execute once, then be reused locally.")
         print("=" * 70)
 
-    print(f"\n[*] 检查本地数据状态: {msg}")
-    print(f"[*] 正在为您全自动整备 {start_year}-{end_year} 历史数据 (已有季度文件自动跳过，无需重复下载)...")
+    status_prefix = f"\n[*] 检查本地数据状态: {msg}" if zh else f"\n[*] Checking local data status: {msg}"
+    prep_prefix = f"[*] 正在为您全自动整备 {start_year}-{end_year} 历史数据 (已有季度文件自动跳过，无需重复下载)..." if zh else f"[*] Automatically preparing {start_year}-{end_year} datasets (skipping existing files)..."
+    print(status_prefix)
+    print(prep_prefix)
 
-    # 1. 检查并下载 SEC DERA 原始数据包
+    # 1. Download
     downloader = SecDeraDownloader(download_dir=target_zips, start_year=start_year, end_year=end_year)
     downloader.run()
 
-    # 2. 转换为 ZSTD Parquet 并挂载 DuckDB 视图
+    # 2. Convert to Parquet & mount DuckDB
     builder = SecToDuckDBPipeline(zips_dir=target_zips, parquet_dir=target_parquet, db_path=target_db)
     builder.run()
 
-    # 最终验证
+    # Verify
     ready_after, msg_after, _, _, _, _ = check_lakehouse_ready(target_db, require_all_years=require_all_years)
     if ready_after:
-        print(f"\n🎉 本地湖仓全自动整备完毕: {msg_after}\n")
+        done_msg = f"\n🎉 本地湖仓全自动整备完毕: {msg_after}\n" if zh else f"\n🎉 Local Lakehouse prepared successfully: {msg_after}\n"
+        print(done_msg)
         return True
     else:
-        print(f"\n[-] 湖仓整备状态: {msg_after}\n")
+        err_msg = f"\n[-] 湖仓整备状态: {msg_after}\n" if zh else f"\n[-] Lakehouse setup status: {msg_after}\n"
+        print(err_msg)
         return False
 
 
@@ -250,7 +268,9 @@ def audit_single_ticker_online(ticker: str) -> dict:
             da = report.get('discretionary_accruals', 0.0)
             da_flag = "❌ Abnormal discretionary accruals (>0.08)" if da > 0.08 else "✅ Normal accruals"
             print(f"  ● Modified Jones DA     : {da:.4f} ({da_flag})")
-        print(f"  ● Altman Z-Score        : {report.get('altman_z')} ({report.get('altman_zone')})")
+        zone_raw = str(report.get('altman_zone', ''))
+        altman_zone_str = "Safe Zone" if ("安全" in zone_raw or "Safe" in zone_raw) else ("Distress Zone" if ("危险" in zone_raw or "Distress" in zone_raw) else "Grey Zone")
+        print(f"  ● Altman Z-Score        : {report.get('altman_z')} ({altman_zone_str})")
         sloan_val = report.get('sloan_accrual') or 0.0
         sloan_flag = "❌ High accrual anomaly (>0.10)" if sloan_val > 0.10 else "✅ Solid cash flow support"
         print(f"  ● Sloan Net Accrual     : {sloan_val} ({sloan_flag})")
@@ -357,12 +377,6 @@ def audit_batch_tickers(ticker_list: list, output_report: str = ""):
         else:
             print(f"● 🌟 Executive Summary: {os.path.abspath(actual_md)} (Recommended for quick reading)")
             print(f"● 📊 Full Excel Report : {os.path.abspath(actual_path)} (Comprehensive cross-statement dataset)")
-            print("-" * 70)
-            print(f"  ● Total Batch Latency : {t_batch_total:.2f} s")
-            print(f"  ● Average Time/Ticker : {avg_time:.2f} s/ticker")
-        print("⏱️ 【批量审计耗时统计】:")
-        print(f"  ● 批量分析总耗时  : {t_batch_total:.2f} 秒")
-        print(f"  ● 平均每只分析耗时: {avg_time:.2f} 秒/只")
         print("=" * 70 + "\n")
 
 
