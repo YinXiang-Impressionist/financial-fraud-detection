@@ -57,20 +57,24 @@ class TestEdgarPipelineIntegration(unittest.TestCase):
 
 def main():
     ticker = sys.argv[1] if len(sys.argv) > 1 else "NVDA"
+    zh = os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
     print("=" * 70)
-    print(f"🚀 【启动 EDGAR 立体法务审计全流程集成测试】: 目标股票 {ticker}")
+    title = f"🚀 【启动 EDGAR 立体法务审计全流程集成测试】: 目标股票 {ticker}" if zh else f"🚀 [Launch EDGAR Forensic Audit Pipeline Integration Test]: Target {ticker}"
+    print(title)
     print("=" * 70 + "\n")
 
     t0 = time.time()
     res = run_edgar_audit_integration(ticker)
     elapsed = time.time() - t0
 
-    print(f"[+] 数据抽取与评估完成！耗时: {elapsed:.2f} 秒")
-    print(f"  ● 公司名称: {res.get('name')} (CIK: {res.get('cik')})")
-    print(f"  ● 风险评分: {res.get('total_risk_score')} 分 ({res.get('risk_level')})")
-    print(f"  ● 命中预警: {res.get('warning_count')} 项")
+    success_line = f"[+] 数据抽取与评估完成！耗时: {elapsed:.2f} 秒" if zh else f"[+] Data extraction & audit completed! Elapsed: {elapsed:.2f} s"
+    print(success_line)
+    print(f"  ● {'公司名称' if zh else 'Company'}: {res.get('name')} (CIK: {res.get('cik')})")
+    print(f"  ● {'风险评分' if zh else 'Risk Score'}: {res.get('total_risk_score')} ({res.get('risk_level')})")
+    print(f"  ● {'命中预警' if zh else 'Triggered Warnings'}: {res.get('warning_count')} items")
     print("=" * 70)
-    print("🎉 【EDGAR 在线穿透测试顺利完成！】")
+    done_msg = "🎉 【EDGAR 在线穿透测试顺利完成！】" if zh else "🎉 [EDGAR Online Audit Pipeline Integration Test Passed!]"
+    print(done_msg)
 
 
 if __name__ == "__main__":

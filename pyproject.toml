@@ -61,10 +61,10 @@ dev = [
 sec-forensic = "main:main"
 
 [project.urls]
-Homepage = "https://github.com/your-repo/sec_financial_lakehouse"
-Documentation = "https://github.com/your-repo/sec_financial_lakehouse#readme"
-Repository = "https://github.com/your-repo/sec_financial_lakehouse.git"
-"Bug Tracker" = "https://github.com/your-repo/sec_financial_lakehouse/issues"
+Homepage = "https://github.com/YinXiang-Impressionist/financial-fraud-detection"
+Documentation = "https://github.com/YinXiang-Impressionist/financial-fraud-detection#readme"
+Repository = "https://github.com/YinXiang-Impressionist/financial-fraud-detection.git"
+"Bug Tracker" = "https://github.com/YinXiang-Impressionist/financial-fraud-detection/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

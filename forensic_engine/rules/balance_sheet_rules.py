@@ -16,6 +16,7 @@ Balance Sheet Forensic Audit Rules
 - 规则 1.10: 资不抵债与净资产穿底赤字 (Negative Equity / Insolvent)
 """
 
+import os
 from typing import Dict, List, Tuple, Any
 import numpy as np
 import pandas as pd
@@ -28,6 +29,7 @@ def check_balance_sheet_rules(row: Dict[str, Any]) -> Tuple[int, List[str]]:
     """
     score = 0
     warnings = []
+    zh = os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
 
     assets = float(row.get('assets') or 0.0)
     equity = float(row.get('equity') or 0.0)
@@ -53,7 +55,8 @@ def check_balance_sheet_rules(row: Dict[str, Any]) -> Tuple[int, List[str]]:
     # 规则 1.10: 资不抵债与净资产赤字
     if equity < 0 and assets > 1e6:
         score += 30
-        warnings.append(f"【资不抵债】所有者权益为赤字负值 ({equity/1e6:.1f}M)，破产与偿债风险极高")
+        msg = f"【资不抵债】所有者权益为赤字负值 ({equity/1e6:.1f}M)，破产与偿债风险极高" if zh else f"[Negative Equity] Stockholders' equity is in deficit (${equity/1e6:.1f}M), critical insolvency and default risk"
+        warnings.append(msg)
 
     # 规则 1.1: 存贷双高与受限资金嫌疑
     if assets > 0:
@@ -63,58 +66,68 @@ def check_balance_sheet_rules(row: Dict[str, Any]) -> Tuple[int, List[str]]:
             # 进一步检测利息倒挂
             if interest_exp > net_income and net_income > 0:
                 score += 25
-                warnings.append(f"【存贷双高恶性】巨额现金(占比{cash_ratio*100:.1f}%)与高额债务(占比{debt_ratio*100:.1f}%)并存，且利息支出吞噬净利润")
+                msg = f"【存贷双高恶性】巨额现金(占比{cash_ratio*100:.1f}%)与高额债务(占比{debt_ratio*100:.1f}%)并存，且利息支出吞噬净利润" if zh else f"[Severe Cash-Debt Paradox] High cash ({cash_ratio*100:.1f}%) and heavy debt ({debt_ratio*100:.1f}%) coexist while interest expenses erode net profit"
+                warnings.append(msg)
             elif interest_inc > 0 and (interest_inc / cash) < 0.01:
                 score += 25
-                warnings.append(f"【存贷双高异常】账面现金充裕(占比{cash_ratio*100:.1f}%)却背负重债(占比{debt_ratio*100:.1f}%)，资金收益率<{interest_inc/cash*100:.2f}%涉嫌受限或虚构")
+                msg = f"【存贷双高异常】账面现金充裕(占比{cash_ratio*100:.1f}%)却背负重债(占比{debt_ratio*100:.1f}%)，资金收益率<{interest_inc/cash*100:.2f}%涉嫌受限或虚构" if zh else f"[Abnormal Cash-Debt Paradox] Substantial cash ({cash_ratio*100:.1f}%) alongside debt ({debt_ratio*100:.1f}%), yet cash yield <{interest_inc/cash*100:.2f}% indicates pledged or fictitious funds"
+                warnings.append(msg)
             else:
                 score += 15
-                warnings.append(f"【存贷双高疑似】现金占比{cash_ratio*100:.1f}%与有息负债占比{debt_ratio*100:.1f}%双高，警惕资金受限质押")
+                msg = f"【存贷双高疑似】现金占比{cash_ratio*100:.1f}%与有息负债占比{debt_ratio*100:.1f}%双高，警惕资金受限质押" if zh else f"[Suspicious Cash-Debt Coexistence] High cash ({cash_ratio*100:.1f}%) and debt ({debt_ratio*100:.1f}%) ratio, alert for restricted or pledged liquidity"
+                warnings.append(msg)
 
     # 规则 1.2: 高额商誉悬顶
     if equity > 0 and goodwill > 0:
         gw_ratio = goodwill / equity
         if gw_ratio > 0.50 and goodwill > 5e7:
             score += 25
-            warnings.append(f"【商誉极危悬顶】商誉占净资产比例达 {gw_ratio*100:.1f}% (${goodwill/1e6:.1f}M)，面临业绩变脸大额减值洗澡风险")
+            msg = f"【商誉极危悬顶】商誉占净资产比例达 {gw_ratio*100:.1f}% (${goodwill/1e6:.1f}M)，面临业绩变脸大额减值洗澡风险" if zh else f"[Critical Goodwill Overhang] Goodwill constitutes {gw_ratio*100:.1f}% of net assets (${goodwill/1e6:.1f}M), high impairment write-down risk"
+            warnings.append(msg)
         elif gw_ratio > 0.30 and goodwill > 3e7:
             score += 15
-            warnings.append(f"【高额商誉预警】商誉占净资产比例达 {gw_ratio*100:.1f}% (${goodwill/1e6:.1f}M)")
+            msg = f"【高额商誉预警】商誉占净资产比例达 {gw_ratio*100:.1f}% (${goodwill/1e6:.1f}M)" if zh else f"[Goodwill Warning] Goodwill constitutes {gw_ratio*100:.1f}% of net assets (${goodwill/1e6:.1f}M)"
+            warnings.append(msg)
 
     # 规则 1.3: 应收账款激增与过高占比
     if sales > 0 and ar > 0:
         ar_ratio = ar / sales
         if ar_ratio > 0.60 and ar > 3e7:
             score += 15
-            warnings.append(f"【应收账款畸高】应收账款占营业收入比重达 {ar_ratio*100:.1f}% (${ar/1e6:.1f}M)，大量赊销或存在提前确认收入")
+            msg = f"【应收账款畸高】应收账款占营业收入比重达 {ar_ratio*100:.1f}% (${ar/1e6:.1f}M)，大量赊销或存在提前确认收入" if zh else f"[Disproportionate Receivables] Accounts receivable accounts for {ar_ratio*100:.1f}% of revenue (${ar/1e6:.1f}M), excessive credit terms or aggressive recognition"
+            warnings.append(msg)
 
     # 规则 1.4: 存货异常积压
     if assets > 0 and inv > 0:
         inv_ratio = inv / assets
         if inv_ratio > 0.30 and inv > 3e7:
             score += 15
-            warnings.append(f"【存货过度积压】存货占总资产比重达 {inv_ratio*100:.1f}% (${inv/1e6:.1f}M)，存在跌价计提不足或虚拟库存沉淀资金风险")
+            msg = f"【存货过度积压】存货占总资产比重达 {inv_ratio*100:.1f}% (${inv/1e6:.1f}M)，存在跌价计提不足或虚拟库存沉淀资金风险" if zh else f"[Excessive Inventory Glut] Inventory represents {inv_ratio*100:.1f}% of total assets (${inv/1e6:.1f}M), indicating insufficient write-downs or phantom inventory"
+            warnings.append(msg)
 
     # 规则 1.5: 在建工程长期挂账不转固
     if ppe_net > 0 and cip > 0:
         cip_ratio = cip / ppe_net
         if cip_ratio > 0.50 and cip > 5e7:
             score += 15
-            warnings.append(f"【在建工程异动】在建工程达固定资产净额的 {cip_ratio*100:.1f}% (${cip/1e6:.1f}M)，警惕延缓折旧或借工程掏空资金")
+            msg = f"【在建工程异动】在建工程达固定资产净额的 {cip_ratio*100:.1f}% (${cip/1e6:.1f}M)，警惕延缓折旧或借工程掏空资金" if zh else f"[CIP Overhang Anomaly] Construction in Progress reached {cip_ratio*100:.1f}% of net PPE (${cip/1e6:.1f}M), potential delayed depreciation or capital tunneling"
+            warnings.append(msg)
 
     # 规则 1.6: 其他应收款与预付款项畸高 (资金体外占用通道)
     if assets > 0:
         other_ratio = (other_rec + prepay) / assets
         if other_ratio > 0.10 and (other_rec + prepay) > 3e7:
             score += 15
-            warnings.append(f"【其他应收/预付畸高】其他应收款与预付项合计占总资产 {other_ratio*100:.1f}% (${(other_rec+prepay)/1e6:.1f}M)，警惕非经营性资金占用")
+            msg = f"【其他应收/预付畸高】其他应收款与预付项合计占总资产 {other_ratio*100:.1f}% (${(other_rec+prepay)/1e6:.1f}M)，警惕非经营性资金占用" if zh else f"[Suspicious Other Receivables/Prepayments] Other receivables and prepayments constitute {other_ratio*100:.1f}% of assets (${(other_rec+prepay)/1e6:.1f}M), warning for non-operating tunneling"
+            warnings.append(msg)
 
     # 规则 1.7: 研发支出过度资本化
     if total_rd > 0 and capitalized_rd > 0:
         cap_rate = capitalized_rd / total_rd
         if cap_rate > 0.25 and capitalized_rd > 1e7:
             score += 15
-            warnings.append(f"【研发过度资本化】研发支出资本化率达 {cap_rate*100:.1f}%，显著偏离费用化惯例以虚增利润")
+            msg = f"【研发过度资本化】研发支出资本化率达 {cap_rate*100:.1f}%，显著偏离费用化惯例以虚增利润" if zh else f"[Aggressive R&D Capitalization] R&D capitalization rate reached {cap_rate*100:.1f}%, aggressive deviation from expense standards to inflate income"
+            warnings.append(msg)
 
     # 规则 1.8: “明股实债”——少数股东权益与损益严重倒挂
     if equity > 0 and minority_equity > 0:
@@ -123,7 +136,10 @@ def check_balance_sheet_rules(row: Dict[str, Any]) -> Tuple[int, List[str]]:
             min_prof_ratio = minority_profit / net_income
             if min_prof_ratio < 0.05 or minority_profit <= 0:
                 score += 20
-                warnings.append(f"【明股实债嫌疑】少数股东权益占净资产 {min_eq_ratio*100:.1f}%，但分得损益仅占 {min_prof_ratio*100:.1f}%，呈现显著刚性对赌特征")
+                msg = f"【明股实债嫌疑】少数股东权益占净资产 {min_eq_ratio*100:.1f}%，但分得损益仅占 {min_prof_ratio*100:.1f}%，呈现显著刚性对赌特征" if zh else f"[Shadow Debt / Minority Interest Disconnect] Minority equity is {min_eq_ratio*100:.1f}% of equity but receives only {min_prof_ratio*100:.1f}% of profit, signaling disguised debt obligations"
+                warnings.append(msg)
+
+    return score, warnings
 
     return score, warnings
 

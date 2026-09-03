@@ -13,6 +13,7 @@ Statistical Forensic Accounting & Mathematical Anomaly Engine
    - 净现比统计断裂指数 (Z_CFO_Decoupling)
 """
 
+import os
 from typing import Dict, Any, List, Tuple
 import numpy as np
 import pandas as pd
@@ -79,6 +80,8 @@ def compute_statistical_decoupling_metrics(
     warnings = []
     stat_score = 0
 
+    zh = os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
+
     # 1. 应收账款增速远超营收增速统计偏离
     ar_growth = ((ar_t - ar_prev) / ar_prev) if ar_prev > 0 else 0.0
     sales_growth = ((sales_t - sales_prev) / sales_prev) if sales_prev > 0 else 0.0
@@ -86,7 +89,8 @@ def compute_statistical_decoupling_metrics(
 
     if ar_sales_divergence > 0.25 and (ar_t - ar_prev) > 1e7:
         stat_score += 20
-        warnings.append(f"【应收-营收统计背离】应收账款增速({ar_growth*100:.1f}%)超营收增速({sales_growth*100:.1f}%)达 {ar_sales_divergence*100:.1f}%，统计显著异常")
+        msg = f"【应收-营收统计背离】应收账款增速({ar_growth*100:.1f}%)超营收增速({sales_growth*100:.1f}%)达 {ar_sales_divergence*100:.1f}%，统计显著异常" if zh else f"[AR vs Revenue Decoupling] Receivables growth ({ar_growth*100:.1f}%) significantly exceeded revenue growth ({sales_growth*100:.1f}%) by {ar_sales_divergence*100:.1f}%, indicating abnormal credit expansion"
+        warnings.append(msg)
 
     # 2. 存货积压增速远超营业成本结转增速
     inv_growth = ((inv_t - inv_prev) / inv_prev) if inv_prev > 0 else 0.0
@@ -95,7 +99,8 @@ def compute_statistical_decoupling_metrics(
 
     if inv_cogs_divergence > 0.30 and (inv_t - inv_prev) > 1e7:
         stat_score += 20
-        warnings.append(f"【存货-成本统计背离】存货增速({inv_growth*100:.1f}%)超营业成本增速({cogs_growth*100:.1f}%)达 {inv_cogs_divergence*100:.1f}%，少结转成本虚增毛利嫌疑")
+        msg = f"【存货-成本统计背离】存货增速({inv_growth*100:.1f}%)超营业成本增速({cogs_growth*100:.1f}%)达 {inv_cogs_divergence*100:.1f}%，少结转成本虚增毛利嫌疑" if zh else f"[Inventory vs Cost Decoupling] Inventory growth ({inv_growth*100:.1f}%) exceeded COGS growth ({cogs_growth*100:.1f}%) by {inv_cogs_divergence*100:.1f}%, signaling inventory accumulation or deferred cost recognition"
+        warnings.append(msg)
 
     # 3. 毛利率走高与存货周转放缓反向背离 (Detective Red Flag)
     gm_t = ((sales_t - cogs_t) / sales_t) if sales_t > 0 else 0.0
@@ -105,16 +110,19 @@ def compute_statistical_decoupling_metrics(
 
     if (gm_t - gm_prev) > 0.03 and inv_turnover_prev > 0 and (inv_turnover_t / inv_turnover_prev) < 0.80:
         stat_score += 20
-        warnings.append(f"【毛利-周转反向背离】毛利率逆势扩张 {((gm_t-gm_prev)*100):.1f}% 但存货周转效率骤降 {((1 - inv_turnover_t/inv_turnover_prev)*100):.1f}%，典型虚构高毛利表象")
+        msg = f"【毛利-周转反向背离】毛利率逆势扩张 {((gm_t-gm_prev)*100):.1f}% 但存货周转效率骤降 {((1 - inv_turnover_t/inv_turnover_prev)*100):.1f}%，典型虚构高毛利表象" if zh else f"[Margin vs Turnover Inversion] Gross margin expanded {((gm_t-gm_prev)*100):.1f}% despite inventory turnover plunging {((1 - inv_turnover_t/inv_turnover_prev)*100):.1f}%, contradicting organic market dynamics"
+        warnings.append(msg)
 
     # 4. 净现比严重背离 (硬核现金流统计断裂)
     if net_income_t > 5e7:
         if cfo_t <= 0:
             stat_score += 25
-            warnings.append(f"【净现比恶性断裂】净利润盈利 (${net_income_t/1e6:.1f}M) 但实际经营现金净流出 (${cfo_t/1e6:.1f}M)")
+            msg = f"【净现比恶性断裂】净利润盈利 (${net_income_t/1e6:.1f}M) 但实际经营现金净流出 (${cfo_t/1e6:.1f}M)" if zh else f"[Malignant Cash Decoupling] Positive Net Income (${net_income_t/1e6:.1f}M) accompanied by negative Operating Cash Flow (${cfo_t/1e6:.1f}M)"
+            warnings.append(msg)
         elif (cfo_t / net_income_t) < 0.30:
             stat_score += 15
-            warnings.append(f"【现金流造血孱弱】净现比仅为 {cfo_t/net_income_t:.2f} (远低于0.5警戒线)")
+            msg = f"【现金流造血孱弱】净现比仅为 {cfo_t/net_income_t:.2f} (远低于0.5警戒线)" if zh else f"[Weak Cash Generation] CFO to Net Income ratio is {cfo_t/net_income_t:.2f} (critically below 0.50 benchmark)"
+            warnings.append(msg)
 
     return {
         "stat_score": stat_score,

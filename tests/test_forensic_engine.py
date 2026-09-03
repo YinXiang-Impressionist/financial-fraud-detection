@@ -76,7 +76,7 @@ def test_altman_z_score():
         retained_earnings=400, ebit=150, equity=700, liabilities=300, sales=1200
     )
     assert safe_res['z_score'] > 2.99
-    assert safe_res['zone'] == "绿色安全区(Safe)"
+    assert "Safe" in safe_res['zone']
 
     # 破产危机公司
     distress_res = compute_altman_z(
@@ -154,8 +154,8 @@ def test_abnormal_payout_and_q4_bath():
 
     report = ForensicEvaluator.evaluate_single(test_case)
     warning_texts = " ".join(report['warnings'])
-    assert "【突击超额分红回购】" in warning_texts
-    assert "【Q4突发大洗澡】" in warning_texts
+    assert "突击超额分红回购" in warning_texts or "Surge Payout" in warning_texts
+    assert "Q4突发大洗澡" in warning_texts or "Big-Bath" in warning_texts
 
 
 def test_vectorized_benchmark():

@@ -12,7 +12,7 @@
 [![Apache Parquet](https://img.shields.io/badge/Parquet-ZSTD-brightgreen.svg)](https://parquet.apache.org/)
 [![Performance](https://img.shields.io/badge/Speed-280%2C000%20filings%2Fsec-red.svg)](#)
 [![Zero-LLM](https://img.shields.io/badge/Logic-100%25%20Deterministic%20Pure%20Math-purple.svg)](#)
-[![CI Matrix](https://github.com/your-repo/sec_financial_lakehouse/actions/workflows/ci.yml/badge.svg)](https://github.com/your-repo/sec_financial_lakehouse/actions)
+[![CI Matrix](https://github.com/YinXiang-Impressionist/financial-fraud-detection/actions/workflows/ci.yml/badge.svg)](https://github.com/YinXiang-Impressionist/financial-fraud-detection/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 An ultra-fast, local financial data lakehouse and quantitative forensic accounting engine built directly on **official SEC EDGAR & DERA filings** covering **10,000+ US public companies**.
@@ -85,8 +85,8 @@ sec_financial_lakehouse/
 ### 1. Installation
 
 ```bash
-git clone https://github.com/your-repo/sec_financial_lakehouse.git
-cd sec_financial_lakehouse
+git clone https://github.com/YinXiang-Impressionist/financial-fraud-detection.git
+cd financial-fraud-detection
 
 # Install runtime dependencies
 pip install -r requirements.txt

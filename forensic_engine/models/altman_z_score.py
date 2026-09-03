@@ -9,6 +9,7 @@ Altman Z-Score Financial Distress & Bankruptcy Prediction Model
 - Z > 2.99: 安全区 (Safe Zone) - 财务结构稳健
 """
 
+import os
 from typing import Dict, Any
 import numpy as np
 import pandas as pd
@@ -60,14 +61,15 @@ def compute_altman_z(
     # 标准 Altman Z-Score 公式:
     z_score = 1.2 * x1 + 1.4 * x2 + 3.3 * x3 + 0.6 * x4 + 0.999 * x5
 
+    zh = os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
     if z_score < 1.81:
-        zone = "红色危机区(Distress)"
+        zone = "红色危机区(Distress)" if zh else "Distress Zone"
         is_distressed = True
     elif z_score <= 2.99:
-        zone = "灰色观察区(Grey)"
+        zone = "灰色观察区(Grey)" if zh else "Grey Zone"
         is_distressed = False
     else:
-        zone = "绿色安全区(Safe)"
+        zone = "绿色安全区(Safe)" if zh else "Safe Zone"
         is_distressed = False
 
     return {

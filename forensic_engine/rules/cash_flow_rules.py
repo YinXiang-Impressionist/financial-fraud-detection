@@ -9,6 +9,7 @@ Cash Flow Forensic Audit Rules
 - 规则 3.3: 销售收现比断裂 (Cash Collection Decoupling)
 """
 
+import os
 from typing import Dict, List, Tuple, Any
 import numpy as np
 import pandas as pd
@@ -20,6 +21,7 @@ def check_cash_flow_rules(row: Dict[str, Any]) -> Tuple[int, List[str]]:
     """
     score = 0
     warnings = []
+    zh = os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
 
     cfo = float(row.get('cfo') or 0.0)
     cfi = float(row.get('cfi') or 0.0)
@@ -33,14 +35,16 @@ def check_cash_flow_rules(row: Dict[str, Any]) -> Tuple[int, List[str]]:
         fcf = cfo - capex
         if fcf < -5e7 and cff > 5e7:
             score += 15
-            warnings.append(f"【造血失血借新还旧】自由现金流严重失血 (${fcf/1e6:.1f}M) 且完全依赖外部大额借款筹资支撑周转")
+            msg = f"【造血失血借新还旧】自由现金流严重失血 (${fcf/1e6:.1f}M) 且完全依赖外部大额借款筹资支撑周转" if zh else f"[Chronic FCF Bleeding] Severe negative Free Cash Flow (${fcf/1e6:.1f}M) financed via continuous debt issuance"
+            warnings.append(msg)
 
     # 销售收现比检查
     if sales > 5e7 and cash_from_sales > 0:
         cash_ratio = cash_from_sales / sales
         if cash_ratio < 0.75:
             score += 15
-            warnings.append(f"【销售收现率断裂】销售收现比仅为 {cash_ratio*100:.1f}%，与营业收入严重脱节，涉嫌虚构销售回款")
+            msg = f"【销售收现率断裂】销售收现比仅为 {cash_ratio*100:.1f}%，与营业收入严重脱节，涉嫌虚构销售回款" if zh else f"[Cash Collection Breakdown] Cash collection ratio is {cash_ratio*100:.1f}%, decoupled from revenue, signaling fictitious sales"
+            warnings.append(msg)
 
     # 投资现金流流出与经营现金流入镜像自循环嫌疑
     if cfo > 5e7 and cfi < -5e7:
@@ -48,7 +52,8 @@ def check_cash_flow_rules(row: Dict[str, Any]) -> Tuple[int, List[str]]:
         ratio = abs(cfi) / cfo
         if 0.85 <= ratio <= 1.15:
             score += 20
-            warnings.append(f"【疑似体外循环洗钱】投资流出 (${abs(cfi)/1e6:.1f}M) 与经营流入 (${cfo/1e6:.1f}M) 呈现高度镜像对冲形态")
+            msg = f"【疑似体外循环洗钱】投资流出 (${abs(cfi)/1e6:.1f}M) 与经营流入 (${cfo/1e6:.1f}M) 呈现高度镜像对冲形态" if zh else f"[Suspected Cash Recycling] Investing outflow (${abs(cfi)/1e6:.1f}M) and operating inflow (${cfo/1e6:.1f}M) display mirror hedging patterns"
+            warnings.append(msg)
 
     return score, warnings
 

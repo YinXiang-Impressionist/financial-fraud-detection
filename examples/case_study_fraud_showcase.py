@@ -23,8 +23,15 @@ from forensic_engine import ForensicEvaluator
 
 
 def run_showcase():
+    zh = os.environ.get("FORENSIC_LANG", "en").lower().startswith("zh")
+
     print("=" * 80)
-    print("🏛️ 【SEC Financial Lakehouse 法务排雷引擎: 经典历史造假案例复盘】")
+    title_banner = (
+        "🏛️ 【SEC Financial Lakehouse 法务排雷引擎: 经典历史造假案例复盘】"
+        if zh else
+        "🏛️ [SEC Financial Lakehouse: Historical Corporate Fraud Forensic Showcase]"
+    )
+    print(title_banner)
     print("=" * 80 + "\n")
 
     # -------------------------------------------------------------
@@ -112,35 +119,57 @@ def run_showcase():
         "cfo": 110543000000
     }
 
+    case1_title = "【经典案例 1】激进跨期操纵与现金流背离型造假 (Enron-Style)" if zh else "[Case 1] Aggressive Cross-Period Manipulation & Cash Flow Divergence (Enron-Style)"
+    case2_title = "【经典案例 2】稳健高韧性蓝筹企业 (Solid Blue-Chip Benchmark)" if zh else "[Case 2] Resilient High-Quality Blue-Chip Enterprise (Benchmark Giant)"
+
     cases = [
-        ("【经典案例 1】激进跨期操纵与现金流背离型造假 (Enron-Style)", enron_style_curr, enron_style_prev),
-        ("【经典案例 2】稳健高韧性蓝筹企业 (Solid Blue-Chip Benchmark)", solid_giant_curr, solid_giant_prev)
+        (case1_title, enron_style_curr, enron_style_prev),
+        (case2_title, solid_giant_curr, solid_giant_prev)
     ]
 
     for title, curr, prev in cases:
         print("-" * 80)
         print(f"{title}")
-        print(f"  ● 公司名称: {curr['name']}")
-        print(f"  ● 营业收入: ${curr['sales']/1e6:,.2f} Million")
-        print(f"  ● 净利润  : ${curr['net_income']/1e6:,.2f} Million")
-        print(f"  ● 经营现金: ${curr['cfo']/1e6:,.2f} Million (净现比 CFO/NI: {curr['cfo']/curr['net_income']:.2f})")
+        print(f"  ● {'公司名称' if zh else 'Company'}: {curr['name']}")
+        print(f"  ● {'营业收入' if zh else 'Revenue'}: ${curr['sales']/1e6:,.2f} Million")
+        print(f"  ● {'净利润' if zh else 'Net Income'}: ${curr['net_income']/1e6:,.2f} Million")
+        print(f"  ● {'经营现金' if zh else 'Operating Cash Flow (CFO)'}: ${curr['cfo']/1e6:,.2f} Million ({'净现比 CFO/NI' if zh else 'CFO/NI Ratio'}: {curr['cfo']/curr['net_income']:.2f})")
 
         res = ForensicEvaluator.evaluate_single(curr, prev_record=prev)
 
-        print(f"\n📊 【排雷体检结果】:")
-        print(f"  ● 综合风险评分: {res['total_risk_score']} 分 (0~100)")
-        print(f"  ● 风险定级结论: {res['risk_level']}")
-        print(f"  ● 贝尼斯 Beneish M-Score: {res['beneish_m_score']} ({'❌ 突破-1.78警戒线(操纵高危)' if res['beneish_is_manipulator'] else '✅ 安全区间'})")
-        print(f"  ● 修正琼斯可操纵应计 (DA): {res['discretionary_accruals']:.4f} ({'❌ 跨期操纵显著' if (res['discretionary_accruals'] or 0) > 0.08 else '✅ 正常'})")
-        print(f"  ● 奥特曼破产 Altman Z: {res['altman_z']} ({res['altman_zone']})")
-        print(f"  ● 命中风险预警项数: {res['warning_count']} 项")
-        print(f"  ● 诊断成因与证据明细:")
+        header_diag = "📊 【排雷体检结果】:" if zh else "📊 [Forensic Diagnostic Result]:"
+        print(f"\n{header_diag}")
+        print(f"  ● {'综合风险评分' if zh else 'Total Risk Score'}: {res['total_risk_score']} / 100")
+        print(f"  ● {'风险定级结论' if zh else 'Risk Tier Rating'}: {res['risk_level']}")
+        
+        beneish_flag = (
+            ("❌ 突破-1.78警戒线(操纵高危)" if zh else "❌ Breached -1.78 (High Manipulation Risk)")
+            if res['beneish_is_manipulator'] else
+            ("✅ 安全区间" if zh else "✅ Safe Corridor")
+        )
+        print(f"  ● Beneish M-Score: {res['beneish_m_score']} ({beneish_flag})")
+
+        da_val = res.get('discretionary_accruals') or 0.0
+        da_flag = (
+            ("❌ 跨期操纵显著" if zh else "❌ Significant Discretionary Accrual Manipulation")
+            if da_val > 0.08 else
+            ("✅ 正常" if zh else "✅ Normal")
+        )
+        print(f"  ● Modified Jones DA: {da_val:.4f} ({da_flag})")
+        print(f"  ● Altman Z-Score: {res['altman_z']} ({res['altman_zone']})")
+        print(f"  ● {'命中风险预警项数' if zh else 'Triggered Warnings Count'}: {res['warning_count']}")
+        print(f"  ● {'诊断成因与证据明细' if zh else 'Forensic Evidence & Red Flag Notes'}:")
         for line in res['risk_reasons_notes'].split('\n'):
             print(f"     {line}")
         print()
 
     print("=" * 80)
-    print("✅ 案例复盘展示结束: 引擎成功将激进操纵样本判定为红色高危，并将稳健企业判定为绿色安全。")
+    end_banner = (
+        "✅ 案例复盘展示结束: 引擎成功将激进操纵样本判定为红色高危，并将稳健企业判定为绿色安全。"
+        if zh else
+        "✅ Showcase completed: Successfully classified manipulation sample as High Risk and benchmark blue-chip as Sound."
+    )
+    print(end_banner)
     print("=" * 80)
 
 

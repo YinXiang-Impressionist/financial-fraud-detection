@@ -7,7 +7,7 @@ Thank you for your interest in contributing! This project thrives on contributio
 ## 🚀 How to Contribute
 
 ### 1. Reporting Bugs & Asking Questions
-* Check existing [GitHub Issues](https://github.com/your-repo/sec_financial_lakehouse/issues) before submitting a new one.
+* Check existing [GitHub Issues](https://github.com/YinXiang-Impressionist/financial-fraud-detection/issues) before submitting a new one.
 * Use the **Bug Report** template to provide detailed environment info, error tracebacks, and reproducible ticker codes.
 
 ### 2. Suggesting New Forensic Rules or Statistical Models
