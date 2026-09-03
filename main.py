@@ -68,7 +68,7 @@ from pipelines.lakehouse import (
 )
 
 
-def check_lakehouse_ready(db_path: str = "", require_all_years: bool = False) -> tuple:
+def check_lakehouse_ready(db_path: str = "", require_all_years: bool = False, start_year: int = 0, end_year: int = 0) -> tuple:
     """
     Validate local DuckDB Lakehouse integrity and chronological coverage.
     Returns: (is_ready: bool, status_message: str, row_count: int, min_year: int, max_year: int, year_count: int)
@@ -109,6 +109,17 @@ def check_lakehouse_ready(db_path: str = "", require_all_years: bool = False) ->
             max_y = row[2] or CURRENT_YEAR
             y_cnt = row[3] or 1
 
+            if start_year > 0 or end_year > 0:
+                req_s = start_year if start_year > 0 else DEFAULT_START_YEAR
+                req_e = end_year if end_year > 0 else CURRENT_YEAR
+                if req_s > req_e:
+                    req_s, req_e = req_e, req_s
+                if min_y > req_s + 1 or max_y < req_e - 1:
+                    msg = f"本地数据 ({min_y}-{max_y}) 未完全覆盖您所要求的 {req_s}-{req_e} 年份区间" if zh else f"Local DB ({min_y}-{max_y}) does not fully cover requested span {req_s}-{req_e}"
+                    return False, msg, total_count, min_y, max_y, y_cnt
+                msg = f"数据完整 (已覆盖所要求的 {req_s}-{req_e} 年份区间，共 {total_count:,} 份财报)" if zh else f"Coverage verified for FY {req_s}-{req_e} ({total_count:,} reports)"
+                return True, msg, total_count, min_y, max_y, y_cnt
+
             if require_all_years and (min_y > DEFAULT_START_YEAR + 1 or y_cnt < 8):
                 msg = f"本地仅包含 {min_y} 年数据 (共 {y_cnt} 个年份，缺失 {TEN_YEARS_SPAN_DESC} 跨10年历史年度数据包)" if zh else f"Local DB contains filings from {min_y} only ({y_cnt} fiscal years; missing historical decade {TEN_YEARS_SPAN_DESC})"
                 return False, msg, total_count, min_y, max_y, y_cnt
@@ -140,7 +151,12 @@ def ensure_lakehouse_ready(
     target_parquet = parquet_dir if parquet_dir else DEFAULT_PARQUET_DIR
     zh = is_zh()
 
-    ready, msg, _, min_y, max_y, _ = check_lakehouse_ready(target_db, require_all_years=require_all_years)
+    ready, msg, _, min_y, max_y, _ = check_lakehouse_ready(
+        target_db, 
+        require_all_years=require_all_years, 
+        start_year=start_year if start_year != DEFAULT_START_YEAR else 0,
+        end_year=end_year if end_year != CURRENT_YEAR else 0
+    )
     if ready and not force_download:
         pass_msg = f"[+] 湖仓就绪检查通过: {msg}" if zh else f"[+] Lakehouse integrity check passed: {msg}"
         skip_msg = "[+] 检测到本地已存在所需数据，自动跳过下载与构建，直接执行分析任务！\n" if zh else "[+] Required local dataset is already in place. Skipping download & ETL, proceeding immediately!\n"
@@ -393,10 +409,11 @@ def run_interactive_menu():
             print("  [1] 🎯 单票在线排雷审计 (输入股票代码，如 NVDA / TSLA / AAPL)")
             print("  [2] 📋 自选股批量排雷体检 (输入多只股票，自动导出 Excel 诊断榜单)")
             print("  [3] ⚡ 全美股最新财年大扫描 (秒级扫描数千家公司，自动调度湖仓)")
-            print(f"  [4] 📚 {TEN_YEARS_SPAN_DESC} 历年历史大排查 (跨 10 年完整数据全量回溯)")
-            print("  [5] 🔍 检查本地 DuckDB 湖仓完整性与数据状态")
-            print("  [6] 📥 批量下载/补齐 SEC 官方历史数据 (已有文件自动跳过)")
-            print("  [7] ⚙️ 构建/刷新 DuckDB 湖仓 Parquet 视图")
+            print("  [4] 📅 自定义年份区间历史大排查 (自选起始年份与结束年份，如 2022-2026)")
+            print(f"  [5] 📚 {TEN_YEARS_SPAN_DESC} 历年历史大排查 (跨 10 年完整数据全量回溯)")
+            print("  [6] 🔍 检查本地 DuckDB 湖仓完整性与数据状态")
+            print("  [7] 📥 批量下载/补齐 SEC 官方历史数据 (已有文件自动跳过)")
+            print("  [8] ⚙️ 构建/刷新 DuckDB 湖仓 Parquet 视图")
             print("  [L] 🌐 切换语言 (Switch to English)")
             print("  [0] 🚪 退出系统")
         else:
@@ -407,16 +424,17 @@ def run_interactive_menu():
             print("  [1] 🎯 Single-Ticker Online Forensic Audit (e.g. NVDA, AAPL, TSLA)")
             print("  [2] 📋 Batch Watchlist Audit & Diagnostic Report (Generates Excel & Summary)")
             print("  [3] ⚡ Full-Market Latest Fiscal Year Scan (Columnar vectorized audit)")
-            print(f"  [4] 📚 Historical Full-Market Decade Backtest ({TEN_YEARS_SPAN_DESC})")
-            print("  [5] 🔍 Check Local DuckDB Lakehouse Integrity & Record Count")
-            print("  [6] 📥 Download / Resume SEC DERA Historical Datasets")
-            print("  [7] ⚙️ Build / Refresh DuckDB Lakehouse Parquet Views")
+            print("  [4] 📅 Custom Fiscal Year Range Scan (Select custom start & end years, e.g. 2022-2026)")
+            print(f"  [5] 📚 Historical Full-Market Decade Backtest ({TEN_YEARS_SPAN_DESC})")
+            print("  [6] 🔍 Check Local DuckDB Lakehouse Integrity & Record Count")
+            print("  [7] 📥 Download / Resume SEC DERA Historical Datasets")
+            print("  [8] ⚙️ Build / Refresh DuckDB Lakehouse Parquet Views")
             print("  [L] 🌐 Switch Language (切换为中文)")
             print("  [0] 🚪 Exit System")
         print("=" * 74)
 
         try:
-            choice = input("👉 Select option / 请输入编号 [0-7, L]: ").strip().lower()
+            choice = input("👉 Select option / 请输入编号 [0-8, L]: ").strip().lower()
         except (KeyboardInterrupt, EOFError):
             print("\n👋 Goodbye / 已退出系统。\n")
             break
@@ -455,6 +473,36 @@ def run_interactive_menu():
                 detector.scan_all_stocks()
 
         elif choice == '4':
+            def_start = max(CURRENT_YEAR - 4, DEFAULT_START_YEAR)
+            start_prompt = f"\n📅 Start Fiscal Year [Default {def_start}]: " if not zh else f"\n📅 请输入起始年份 [默认 {def_start}]: "
+            end_prompt = f"📅 End Fiscal Year [Default {CURRENT_YEAR}]: " if not zh else f"📅 请输入结束年份 [默认 {CURRENT_YEAR}]: "
+            s_raw = input(start_prompt).strip()
+            e_raw = input(end_prompt).strip()
+            s_y = int(s_raw) if s_raw.isdigit() else def_start
+            e_y = int(e_raw) if e_raw.isdigit() else CURRENT_YEAR
+            if s_y > e_y:
+                s_y, e_y = e_y, s_y
+
+            ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready(DEFAULT_DB_PATH, start_year=s_y, end_year=e_y)
+            if not ready:
+                print("\n" + "=" * 70)
+                warn_title = "⚠️ 【目标年度数据覆盖提醒】" if zh else "⚠️ [Target Fiscal Year Span Coverage Notice]"
+                print(warn_title)
+                print("=" * 70)
+                print(f"● Status: {msg}")
+                confirm_prompt = f"👉 Download missing historical packets for FY {s_y}-{e_y} now? [y/N]: " if not zh else f"👉 是否立即下载补齐 {s_y}-{e_y} 年历史数据包？[y/N]: "
+                ans = input(confirm_prompt).strip().lower()
+                if ans in ['y', 'yes']:
+                    if not ensure_lakehouse_ready(start_year=s_y, end_year=e_y, force_download=True):
+                        continue
+                else:
+                    continue_msg = f"[*] Proceeding with available local data..." if not zh else f"[*] 继续基于本地现有数据执行排查...\n"
+                    print(continue_msg)
+
+            detector = USStockFraudDetector(db_path=DEFAULT_DB_PATH)
+            detector.scan_all_stocks(start_year=s_y, end_year=e_y)
+
+        elif choice == '5':
             ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready(DEFAULT_DB_PATH, require_all_years=True)
             if not ready and min_y > DEFAULT_START_YEAR + 1:
                 print("\n" + "=" * 70)
@@ -482,7 +530,7 @@ def run_interactive_menu():
             detector = USStockFraudDetector(db_path=DEFAULT_DB_PATH)
             detector.scan_all_stocks(all_years=True)
 
-        elif choice == '5':
+        elif choice == '6':
             ready, msg, count, min_y, max_y, y_cnt = check_lakehouse_ready(DEFAULT_DB_PATH)
             print("\n" + "=" * 65)
             report_title = "🔍 【本地 SEC 数据湖仓完整性检查报告】" if zh else "🔍 [Local SEC DuckDB Lakehouse Integrity Report]"
@@ -494,7 +542,7 @@ def run_interactive_menu():
                 print(f"● Total Rows : {count:,} filings")
             print("=" * 65 + "\n")
 
-        elif choice == '6':
+        elif choice == '7':
             start_prompt = f"📅 Start Year [Default {DEFAULT_START_YEAR}]: " if not zh else f"📅 起始年份 [默认 {DEFAULT_START_YEAR}]: "
             end_prompt = f"📅 End Year [Default {CURRENT_YEAR}]: " if not zh else f"📅 结束年份 [默认 {CURRENT_YEAR}]: "
             start_y = input(start_prompt).strip() or str(DEFAULT_START_YEAR)
@@ -502,7 +550,7 @@ def run_interactive_menu():
             downloader = SecDeraDownloader(download_dir=DEFAULT_ZIPS_DIR, start_year=int(start_y), end_year=int(end_y))
             downloader.run()
 
-        elif choice == '7':
+        elif choice == '8':
             builder = SecToDuckDBPipeline(zips_dir=DEFAULT_ZIPS_DIR, parquet_dir=DEFAULT_PARQUET_DIR, db_path=DEFAULT_DB_PATH)
             builder.run()
 
@@ -539,8 +587,8 @@ def main():
     parser.add_argument("--build", action="store_true", help="Convert zip files to Parquet and mount DuckDB views")
     parser.add_argument("--zips-dir", type=str, default=DEFAULT_ZIPS_DIR, help="Directory for raw SEC zip files")
     parser.add_argument("--parquet-dir", type=str, default=DEFAULT_PARQUET_DIR, help="Directory for converted Parquet lakehouse")
-    parser.add_argument("--start-year", type=int, default=DEFAULT_START_YEAR, help=f"Start year (default {DEFAULT_START_YEAR})")
-    parser.add_argument("--end-year", type=int, default=CURRENT_YEAR, help=f"End year (default {CURRENT_YEAR})")
+    parser.add_argument("--start-year", type=int, default=DEFAULT_START_YEAR, help=f"Start year for dataset download or custom scan span (default {DEFAULT_START_YEAR})")
+    parser.add_argument("--end-year", type=int, default=CURRENT_YEAR, help=f"End year for dataset download or custom scan span (default {CURRENT_YEAR})")
     
     # 离线批量扫描参数
     parser.add_argument("--db", type=str, default=DEFAULT_DB_PATH, help="DuckDB database file path")
@@ -605,8 +653,12 @@ def main():
             builder.run()
             return
 
-        # 6. 本地全市场大扫描
+        # 6. 本地全市场大扫描 (支持最新财年、跨10年或自定义起始/结束年份)
         if args.scan or args.all_years:
+            is_custom_span = (args.start_year != DEFAULT_START_YEAR or args.end_year != CURRENT_YEAR)
+            req_start = args.start_year if is_custom_span else 0
+            req_end = args.end_year if is_custom_span else 0
+
             if not ensure_lakehouse_ready(
                 db_path=args.db,
                 zips_dir=args.zips_dir,
@@ -618,7 +670,13 @@ def main():
                 return
 
             detector = USStockFraudDetector(db_path=args.db, output_report=args.output)
-            detector.scan_all_stocks(fy=args.fy, all_years=args.all_years, output_report=args.output)
+            detector.scan_all_stocks(
+                fy=args.fy, 
+                all_years=args.all_years, 
+                output_report=args.output,
+                start_year=req_start,
+                end_year=req_end
+            )
             return
 
     finally:

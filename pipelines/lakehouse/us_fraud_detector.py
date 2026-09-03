@@ -226,15 +226,36 @@ class USStockFraudDetector:
 
         return report
 
-    def scan_all_stocks(self, fy: str = "", form: str = "", all_years: bool = False, output_report: str = ""):
+    def scan_all_stocks(self, fy: str = "", form: str = "", all_years: bool = False, output_report: str = "", start_year: int = 0, end_year: int = 0):
         """Vectorized forensic audit engine scanning tens of thousands of US public companies via DuckDB (English default)"""
         self._ensure_db()
         zh = is_zh()
-        out_file = output_report or self.output_report
+        
+        # 自定义年份区间支持
+        if start_year > 0 and end_year > 0 and start_year > end_year:
+            start_year, end_year = end_year, start_year
+        is_custom_span = (start_year > 0 or end_year > 0)
+        custom_s = start_year if start_year > 0 else DEFAULT_START_YEAR
+        custom_e = end_year if end_year > 0 else CURRENT_YEAR
+
         if zh:
-            mode_desc = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR} 历年所有申报记录 (跨10年完整历史数据)" if all_years or fy.lower() == 'all' else (f"{fy} 财年数据" if fy else "全美股所有公司最新披露数据")
+            if is_custom_span:
+                mode_desc = f"{custom_s}-{custom_e} 历年所有申报记录"
+            elif all_years or fy.lower() == 'all':
+                mode_desc = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR} 历年所有申报记录 (跨10年完整历史数据)"
+            elif fy:
+                mode_desc = f"{fy} 财年数据"
+            else:
+                mode_desc = "全美股所有公司最新披露数据"
         else:
-            mode_desc = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR} Historical filings (10-year dataset)" if all_years or fy.lower() == 'all' else (f"FY {fy} filings" if fy else "Latest filings across all US public companies")
+            if is_custom_span:
+                mode_desc = f"FY {custom_s}-{custom_e} historical filings"
+            elif all_years or fy.lower() == 'all':
+                mode_desc = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR} Historical filings (10-year dataset)"
+            elif fy:
+                mode_desc = f"FY {fy} filings"
+            else:
+                mode_desc = "Latest filings across all US public companies"
         
         print("\n" + "=" * 75)
         banner_msg = "[*] Initializing DuckDB + ForensicEvaluator vectorized forensic audit engine..." if not zh else "[*] 启动 DuckDB + ForensicEvaluator 极速向量化扫描引擎..."
@@ -248,7 +269,9 @@ class USStockFraudDetector:
 
         form_filter = f"AND s.form = '{form}'" if form and form.lower() != 'all' else "AND s.form IN ('10-K', '10-Q')"
         
-        if fy and fy.lower() != 'all':
+        if is_custom_span:
+            fy_filter = f"AND try_cast(substr(cast(s.period as varchar), 1, 4) as int) >= {custom_s} AND try_cast(substr(cast(s.period as varchar), 1, 4) as int) <= {custom_e}"
+        elif fy and fy.lower() != 'all':
             fy_filter = f"AND s.fy = '{fy}'"
         elif all_years:
             # 跨 10 年完整数据全景排查：动态限定起始年份，坚决过滤历史迟交补报噪点
@@ -257,7 +280,7 @@ class USStockFraudDetector:
             # 最新财年扫描模式：只扫描最近活跃年份内有披露的上市公司，坚决过滤退市僵尸公司
             fy_filter = f"AND try_cast(substr(cast(s.period as varchar), 1, 4) as int) >= {ACTIVE_LOOKBACK_YEAR}"
 
-        if all_years or (fy and fy.lower() == 'all'):
+        if all_years or (fy and fy.lower() == 'all') or is_custom_span:
             query = f"""
                 WITH target_sub AS (
                     SELECT cik, name, adsh, form, period, fy, fp
@@ -522,6 +545,15 @@ class USStockFraudDetector:
                     "Filings_Timeline": df_filings_by_company,
                     "High_Risk_Watchlist": df_red_flags
                 }
+        if not output_report:
+            generated_name = generate_report_filename(
+                prefix="",
+                fy=fy,
+                all_years=all_years,
+                actual_min_y=str(actual_min_y) if actual_min_y else "",
+                actual_max_y=str(actual_max_y) if actual_max_y else ""
+            )
+            out_file = os.path.join(PROJECT_ROOT, generated_name)
 
         actual_output = safe_save_excel(sheets_data, out_file)
 

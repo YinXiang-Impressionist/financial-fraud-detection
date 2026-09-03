@@ -153,6 +153,9 @@ python main.py --build
 # 全美股所有公司最新一期报表秒级大扫描 (输出 Top 风险排行并保存 Excel)
 python main.py --scan
 
+# 自定义历史年份区间扫描 (自选起始年份与结束年份，如 2022 至 2025 年)
+python main.py --scan --start-year 2022 --end-year 2025
+
 # 2016-2026 历年跨 10 年完整历史申报记录全量大排查 (自动检测并提示补齐历史数据包)
 python main.py --scan --all-years
 ```

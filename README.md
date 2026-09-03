@@ -127,13 +127,26 @@ python main.py --batch "AAPL,NVDA,TSLA,MSFT,BABA" --output "./my_watchlist_audit
 # Automatically generates ./my_watchlist_audit_summary.md as well!
 ```
 
-### 5. Historical Fraud Case Study Benchmark
+### 5. Offline Full-Market Screener & Custom Fiscal Year Span
+
+```bash
+# Scan latest fiscal year across all US public equities
+python main.py --scan
+
+# Custom fiscal year span (select custom start & end years, e.g. 2022 to 2025)
+python main.py --scan --start-year 2022 --end-year 2025
+
+# Full historical decade scan (2016-2026)
+python main.py --all-years
+```
+
+### 6. Historical Fraud Case Study Benchmark
 
 ```bash
 python examples/case_study_fraud_showcase.py
 ```
 
-### 6. Run Test Suite
+### 7. Run Test Suite
 
 ```bash
 # Using native unittest runner
