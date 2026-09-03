@@ -1,200 +1,207 @@
-# SEC 美股数理统计法务排雷评分与计量模型白皮书
-(Forensic Accounting & Statistical Fraud Detection Methodology)
+# Quantitative Forensic Accounting & Statistical Fraud Detection Whitepaper
+### Deterministic Financial Statement Forensic Architecture for US Equities
+
+<p align="left">
+  <a href="FORENSIC_SCORING_METHODOLOGY.md"><img src="https://img.shields.io/badge/Language-English-blue?style=for-the-badge" alt="English"></a>
+  <a href="FORENSIC_SCORING_METHODOLOGY_CN.md"><img src="https://img.shields.io/badge/语言-简体中文-red?style=for-the-badge" alt="简体中文"></a>
+</p>
 
 ---
 
-## 目录
-1. [系统核心设计哲学与原则](#1-系统核心设计哲学与原则)
-2. [综合风险评分与四级风险区间](#2-综合风险评分与四级风险区间)
-3. [四大核心数理与计量经济学模型](#3-四大核心数理与计量经济学模型)
-   - [3.1 贝尼斯 Beneish M-Score 8 变量操纵指数模型](#31-贝尼斯-beneish-m-score-8-变量操纵指数模型)
-   - [3.2 修正琼斯模型 Modified Jones Model (可操纵应计利润残差)](#32-修正琼斯模型-modified-jones-model-可操纵应计利润残差)
-   - [3.3 奥特曼 Altman Z-Score 财务危机破产距离模型](#33-奥特曼-altman-z-score-财务危机破产距离模型)
-   - [3.4 Sloan 净应计利润异象模型](#34-sloan-净应计利润异象模型)
-4. [跨科目统计背离度检测 (Statistical Decoupling)](#4-跨科目统计背离度检测-statistical-decoupling)
-5. [三大财务报表硬核勾稽穿透排雷规则](#5-三大财务报表硬核勾稽穿透排雷规则)
-   - [5.1 资产负债表排雷规则](#51-资产负债表排雷规则)
-   - [5.2 利润表操纵规则](#52-利润表操纵规则)
-   - [5.3 现金流量表勾稽断裂规则](#53-现金流量表勾稽断裂规则)
-6. [官方确凿重述 (SEC 8-K Item 4.02) 时效衰减与科研真值标签](#6-官方确凿重述-sec-8-k-item-402-时效衰减与科研真值标签)
-7. [评分汇总机制与计算公式](#7-评分汇总机制与计算公式)
+## Table of Contents
+1. [Core Design Philosophy & Architectural Principles](#1-core-design-philosophy--architectural-principles)
+2. [Composite Risk Scoring & Four-Tier Risk Spectrum](#2-composite-risk-scoring--four-tier-risk-spectrum)
+3. [Four Core Mathematical & Econometric Models](#3-four-core-mathematical--econometric-models)
+   - [3.1 Beneish 8-Variable M-Score Earnings Manipulation Index](#31-beneish-8-variable-m-score-earnings-manipulation-index)
+   - [3.2 Modified Jones Model (Discretionary Accruals Residual)](#32-modified-jones-model-discretionary-accruals-residual)
+   - [3.3 Altman Z-Score Distance-to-Default & Financial Distress](#33-altman-z-score-distance-to-default--financial-distress)
+   - [3.4 Sloan Net Accrual Anomaly](#34-sloan-net-accrual-anomaly)
+4. [Cross-Statement Statistical Decoupling Diagnostics](#4-cross-statement-statistical-decoupling-diagnostics)
+5. [Deterministic Tri-Statement Forensic Auditing Rules](#5-deterministic-tri-statement-forensic-auditing-rules)
+   - [5.1 Balance Sheet Forensics](#51-balance-sheet-forensics)
+   - [5.2 Income Statement Manipulation Diagnostics](#52-income-statement-manipulation-diagnostics)
+   - [5.3 Cash Flow Decoupling & Recycling Diagnostics](#53-cash-flow-decoupling--recycling-diagnostics)
+6. [Official SEC Form 8-K Item 4.02 Restatement Architecture](#6-official-sec-form-8-k-item-402-restatement-architecture)
+   - [6.1 Live Trading Track (Exponential Time-Decay Penalty)](#61-live-trading-track-exponential-time-decay-penalty)
+   - [6.2 Quantitative & Academic Research Track (Permanent Ground Truth)](#62-quantitative--academic-research-track-permanent-ground-truth)
+7. [Scoring Aggregation & Closed-Form Formulations](#7-scoring-aggregation--closed-form-formulations)
 
 ---
 
-## 1. 系统核心设计哲学与原则
+## 1. Core Design Philosophy & Architectural Principles
 
-本系统专为**上市公司财务造假（Financial Statement Fraud）与法务会计（Forensic Accounting）**研发，彻底贯彻以下三大技术底线：
+This forensic system is engineered specifically for **corporate financial statement fraud detection and quantitative forensic accounting**, grounded firmly on three immutable technical principles:
 
-1. **零舆情与零新闻噪音（Zero News / Noise-Free）**：
-   彻底剔除“CFO 离职”、“常规审计所到期更换”等软性商业新闻。因为人事变动存在大量正常退休、换届或个人发展等合法原因，混入排雷会导致严重的假阳性（误杀）。
-2. **纯数理统计与计量科学（100% Deterministic & Detective）**：
-   只相信“底层报表数字、会计分录跨期差分、数理分布规律与计量经济学模型”。用数学公式与计量残差说话。
-3. **零大模型依赖（Zero LLM）**：
-   全套算法基于 NumPy、Pandas 与向量化线性代数，本地纯代码执行，单票计算毫秒级（< 0.1ms），全市场万家公司扫描秒级完成，杜绝大模型的幻觉与成本消耗。
+1. **Zero Noise & Zero Media/Headline Sentiment (100% Noise-Free)**:
+   Soft business news such as "CFO resignation", "routine auditor rotation", or "press rumors" are strictly excluded. Executive transitions routinely occur for benign reasons (retirement, term expirations, career development); conflating managerial mobility with financial crime triggers severe false-positive penalties.
+2. **Deterministic Mathematical & Econometric Verification**:
+   The engine trusts only line-item accounting entries, cross-period difference vectors, statistical distribution laws, and econometric residuals. Every alert is mathematically explainable and auditable.
+3. **Zero LLM / Zero Hallucination Dependency**:
+   All algorithms run natively via vectorized linear algebra in NumPy, Pandas, and DuckDB columnar kernels. Single-ticker audit latency is under **0.1 ms**, and full-market scans across 10,000+ public companies complete in seconds with deterministic precision and zero token costs.
 
 ---
 
-## 2. 综合风险评分与四级风险区间
+## 2. Composite Risk Scoring & Four-Tier Risk Spectrum
 
-系统最终输出 **0 ~ 100 分** 的综合风险评分（`total_risk_score`）：
+The engine synthesizes all detected anomalies into an integrated **0 to 100** Risk Score (`total_risk_score`):
 
-| 评分区间 | 风险等级 | 标识 | 经济含义与审计建议 |
+| Score Range | Risk Tier | Indicator | Economic Significance & Forensic Audit Recommendation |
 | :---: | :---: | :---: | :--- |
-| **50 ~ 100 分** | **红色高危** | `[极危]` | 命中多个致命死穴（如 Beneish 操纵 + 琼斯 DA 异常 + 存贷双高/商誉悬顶/净现比断裂），存在极高概率的系统性财务造假与暴雷风险，**严禁买入或立即排雷避险**。 |
-| **30 ~ 49 分** | **橙色关注** | `[预警]` | 突破部分核心统计模型警戒线（如高成长带来的激进应收与应计操纵嫌疑），存在重大的财报粉饰或激进会计政策选择，需穿透审计附注。 |
-| **15 ~ 29 分** | **黄色提示** | `[提示]` | 个别指标偏离正常分布区间（如轻微的毛利周转脱节或偿债压力处于灰色区），财务基本面尚可，保持常规观察。 |
-| **0 ~ 14 分** | **绿色稳健** | `[稳健]` | 财务三张表勾稽严密，现金流真实充沛，应计利润健康，各项计量模型均处于安全基准线内。 |
+| **50 – 100** | **Red Critical** | `[Critical]` | Multiple severe anomalies breached simultaneously (e.g., Beneish manipulation + Jones abnormal accruals + cash/debt paradox or cash flow decoupling). Systemic earnings fraud or impending distress detected. **Immediate liquidation or mandatory short hedge.** |
+| **30 – 49** | **Orange Warning** | `[Warning]` | Breaches primary econometric thresholds (e.g., aggressive revenue recognition, runaway receivables, or abnormal accruals). Indicates significant earnings management or aggressive accounting policies. Detailed footnote inspection required. |
+| **15 – 29** | **Yellow Caution** | `[Caution]` | Isolated metrics drift beyond historical deciles (e.g., minor margin-turnover divergence or borderline liquidity buffer). Core fundamentals remain viable. Regular monitoring advised. |
+| **0 – 14** | **Green Sound** | `[Sound]` | Clean tri-statement cross-articulation, robust operational cash flow backing, healthy accruals, and all econometric models remain comfortably within safe benchmark corridors. |
 
 ---
 
-## 3. 四大核心数理与计量经济学模型
+## 3. Four Core Mathematical & Econometric Models
 
-### 3.1 贝尼斯 Beneish M-Score 8 变量操纵指数模型
-全球学术界与做空机构（如 Muddy Waters、Hindenburg）引用最广泛的财报操纵预测模型。
+### 3.1 Beneish 8-Variable M-Score Earnings Manipulation Index
+The most widely cited earnings manipulation predictive model among forensic auditors, short sellers (e.g., Muddy Waters, Hindenburg Research), and academic finance:
 
-#### 计算公式：
+#### Mathematical Formulation:
 $$\begin{aligned}
 M\text{-Score} = &-4.84 + 0.920 \times \text{DSRI} + 0.528 \times \text{GMI} + 0.404 \times \text{AQI} \\
 &+ 0.892 \times \text{SGI} + 0.115 \times \text{DEPI} - 0.172 \times \text{SGAI} \\
 &+ 4.037 \times \text{TATA} + 0.0327 \times \text{LVGI}
 \end{aligned}$$
 
-| 统计指标 | 变量全称 | 计算公式 | 异常含义 |
+| Variable | Metric Name | Definition / Formula | Forensic Anomaly Implication |
 | :--- | :--- | :--- | :--- |
-| **DSRI** | 应收账款指数 | $\frac{\text{AR}_t / \text{Sales}_t}{\text{AR}_{t-1} / \text{Sales}_{t-1}}$ | $> 1$ 表示应收账款增速快于营收，提前确认收入或虚构赊销。 |
-| **GMI** | 毛利率指数 | $\frac{\text{GrossMargin}_{t-1}}{\text{GrossMargin}_t}$ | 恶化或激进反弹往往激发管理层粉饰动机。 |
-| **AQI** | 资产质量指数 | $\frac{1 - (\text{CA}_t + \text{PPE}_t)/\text{TA}_t}{1 - (\text{CA}_{t-1} + \text{PPE}_{t-1})/\text{TA}_{t-1}}$ | $> 1$ 表示长摊、商誉、无形资产占比飙升，存在费用资本化。 |
-| **SGI** | 营收增长指数 | $\frac{\text{Sales}_t}{\text{Sales}_{t-1}}$ | 极高增长往往面临维持估值的巨大造假压力。 |
-| **DEPI** | 折旧率指数 | $\frac{\text{DeprRate}_{t-1}}{\text{DeprRate}_t}$ | $> 1$ 表示折旧放缓，通过延缓折旧虚增利润。 |
-| **SGAI** | 销管费用指数 | $\frac{\text{SGA}_t / \text{Sales}_t}{\text{SGA}_{t-1} / \text{Sales}_{t-1}}$ | 营运费用率异动。 |
-| **LVGI** | 杠杆指数 | $\frac{\text{Liab}_t / \text{TA}_t}{\text{Liab}_{t-1} / \text{TA}_{t-1}}$ | 杠杆率上升推高粉饰动机。 |
-| **TATA** | 总应计比率 | $\frac{\text{NetIncome}_t - \text{CFO}_t}{\text{TA}_t}$ | 核心应计水分：利润严重缺乏真金白银现金流支撑。 |
+| **DSRI** | Days Sales in Receivables Index | $\frac{\text{AR}_t / \text{Sales}_t}{\text{AR}_{t-1} / \text{Sales}_{t-1}}$ | $> 1$ indicates receivables growing faster than revenue (premature recognition or fictitious channel stuffing). |
+| **GMI** | Gross Margin Index | $\frac{\text{GrossMargin}_{t-1}}{\text{GrossMargin}_t}$ | Deteriorating or erratic margins intensify incentives to manipulate earnings. |
+| **AQI** | Asset Quality Index | $\frac{1 - (\text{CA}_t + \text{PPE}_t)/\text{TA}_t}{1 - (\text{CA}_{t-1} + \text{PPE}_{t-1})/\text{TA}_{t-1}}$ | $> 1$ indicates an increasing proportion of capitalized intangible assets, goodwill, or deferred charges. |
+| **SGI** | Sales Growth Index | $\frac{\text{Sales}_t}{\text{Sales}_{t-1}}$ | Rapid revenue deceleration or aggressive growth surges create immense pressure to sustain valuation multiples. |
+| **DEPI** | Depreciation Index | $\frac{\text{DeprRate}_{t-1}}{\text{DeprRate}_t}$ | $> 1$ indicates decelerating depreciation rates, extending asset lifespans to artificially inflate net income. |
+| **SGAI** | Sales, General & Admin Index | $\frac{\text{SGA}_t / \text{Sales}_t}{\text{SGA}_{t-1} / \text{Sales}_{t-1}}$ | Disproportionate operating cost spikes or sudden declines signaling margin compression. |
+| **LVGI** | Leverage Index | $\frac{\text{Liab}_t / \text{TA}_t}{\text{Liab}_{t-1} / \text{TA}_{t-1}}$ | Escalating financial leverage increases risk of covenant breach and window-dressing. |
+| **TATA** | Total Accruals to Total Assets | $\frac{\text{NetIncome}_t - \text{CFO}_t}{\text{TA}_t}$ | Primary earnings quality gauge: net income devoid of operational cash backing. |
 
-* **排雷判据**：若 $M\text{-Score} > -1.78$，判定存在系统性报表操纵高危，系统计 **+25 分**。
+* **Decision Criterion**: If $M\text{-Score} > -1.78$, the firm is classified as a likely manipulator, incurring a **+25 points** penalty.
 
 ---
 
-### 3.2 修正琼斯模型 Modified Jones Model (可操纵应计利润残差)
-计量会计学中将应计利润拆解为“正常应计 (Normal Accruals)”与“人为可操纵应计 (Discretionary Accruals, DA)”的标准回归方法：
+### 3.2 Modified Jones Model (Discretionary Accruals Residual)
+The standard econometric methodology to decompose total accruals into non-discretionary (business-driven) accruals and discretionary accruals ($DA$):
 
-#### 估计方程：
+#### Estimation Equation:
 $$\frac{\text{Total Accruals}_t}{\text{Assets}_{t-1}} = \alpha_1 \left(\frac{1}{\text{Assets}_{t-1}}\right) + \alpha_2 \left(\frac{\Delta \text{Sales}_t - \Delta \text{AR}_t}{\text{Assets}_{t-1}}\right) + \alpha_3 \left(\frac{\text{PPE}_t}{\text{Assets}_{t-1}}\right) + \epsilon_t$$
 
-* 其中 $\text{Total Accruals}_t = \text{Net Income}_t - \text{CFO}_t$；
-* 回归残差 $\epsilon_t \equiv DA$ 即为**管理层通过会计估计与权责发生制凭空捏造出的可操纵应计利润**。
-* **排雷判据**：当 $DA > 0.08$（即异常操纵应计超过上期总资产的 8%），判定存在跨期激进调控利润，系统计 **+20 分**。
+* Where $\text{Total Accruals}_t = \text{Net Income}_t - \text{CFO}_t$;
+* The regression residual $\epsilon_t \equiv DA$ captures **managerial discretionary earnings intervention achieved through accounting choices and accrual assumptions**.
+* **Decision Criterion**: When $DA > 0.08$ (abnormal discretionary accruals exceed 8% of lagged total assets), a **+20 points** penalty is assigned.
 
 ---
 
-### 3.3 奥特曼 Altman Z-Score 财务危机破产距离模型
-评估公司财务崩溃与重组违约的距离：
+### 3.3 Altman Z-Score Distance-to-Default & Financial Distress
+Assesses systemic insolvency and bankruptcy probability:
 $$Z = 1.2 X_1 + 1.4 X_2 + 3.3 X_3 + 0.6 X_4 + 0.999 X_5$$
-* $X_1 = \text{营运资本} / \text{总资产}$（短期流动性）
-* $X_2 = \text{留存收益} / \text{总资产}$（累计盈利留存能力）
-* $X_3 = \text{息税前利润 (EBIT)} / \text{总资产}$（真实资产产出率）
-* $X_4 = \text{权益总额 (市值/净资产)} / \text{总负债}$（杠杆结构）
-* $X_5 = \text{营业收入} / \text{总资产}$（周转率）
-* **排雷判据**：当 $Z < 1.81$（落入红色危机区 Distress Zone），系统计 **+20 分**。
+* $X_1 = \text{Working Capital} / \text{Total Assets}$ (Short-term operational liquidity)
+* $X_2 = \text{Retained Earnings} / \text{Total Assets}$ (Cumulative profitability)
+* $X_3 = \text{EBIT} / \text{Total Assets}$ (Operating productivity of capital)
+* $X_4 = \text{Market Value of Equity (or Book Equity)} / \text{Total Liabilities}$ (Financial leverage protection)
+* $X_5 = \text{Sales} / \text{Total Assets}$ (Asset turnover velocity)
+* **Decision Criterion**: When $Z < 1.81$ (Distress Zone), a **+20 points** penalty is assigned.
 
 ---
 
-### 3.4 Sloan 净应计利润异象模型
+### 3.4 Sloan Net Accrual Anomaly
 $$Sloan = \frac{\text{Net Income} - \text{CFO}}{\text{Total Assets}}$$
-* **排雷判据**：当 $Sloan > 0.10$ 时，代表净利润超过总资产 10% 的部分纯属纸面富贵且没有现金回收，系统计 **+15 分**。
+* **Decision Criterion**: When $Sloan > 0.10$ (accruals without cash realization exceed 10% of total assets), earnings persistence is statistically compromised, incurring a **+15 points** penalty.
 
 ---
 
-## 4. 跨科目统计背离度检测 (Statistical Decoupling)
+## 4. Cross-Statement Statistical Decoupling Diagnostics
 
-造假者能伪造某一科目的数字，但很难让所有勾稽科目的相对变动速度同时满足自然统计分布规律：
+While fraudsters can falsify individual accounting line items, maintaining organic co-movement across related statement items is mathematically prohibitive:
 
-1. **应收-营收增速严重背离**：
-   $$\Delta \text{AR}\% - \Delta \text{Sales}\% > 25\% \quad \text{且增量} > \$10\text{M}$$
-   * 触发 **+20 分**（大量打白条赊销或提前确认未来收入）。
-2. **存货-成本结转严重背离**：
-   $$\Delta \text{Inv}\% - \Delta \text{COGS}\% > 30\% \quad \text{且增量} > \$10\text{M}$$
-   * 触发 **+20 分**（少结转营业成本虚增毛利，或虚拟库存积压沉淀资金）。
-3. **毛利率提升与存货周转骤降反常背离**：
-   $$(\text{GM}_t - \text{GM}_{t-1}) > 3\% \quad \text{且} \quad \frac{\text{Turnover}_t}{\text{Turnover}_{t-1}} < 0.80$$
-   * 触发 **+20 分**（商业常理下周转恶化滞销时毛利必然承压，逆势飙升违反统计常理）。
-4. **净现比恶性断裂**：
-   $$\text{Net Income} > 0 \quad \text{且} \quad \text{CFO} \le 0$$
-   * 触发 **+25 分**（净利盈利但经营现金流净流出，纸面暴富）。
-   * 若 $\text{CFO} / \text{Net Income} < 0.30$ 触发 **+15 分**。
-
----
-
-## 5. 三大财务报表硬核勾稽穿透排雷规则
-
-### 5.1 资产负债表排雷规则
-* **存贷双高**（大存大贷与受限资金）：
-  * `货币资金 / 总资产 > 20%` 且 `有息负债 / 总资产 > 30%`；
-  * 叠加利息支出吞噬净利润或资金收益率 $< 1\%$；
-  * 触发 **+20 ~ 25 分**（警惕康美药业/康得新模式，账面存款虚构或早已质押给大股东）。
-* **高额商誉悬顶**：
-  * `商誉 / 净资产 > 50%` 触发 **+25 分**（极危减值暴雷）；
-  * `商誉 / 净资产 > 30%` 触发 **+15 分**（高商誉预警）。
-* **资不抵债**：
-  * `净资产 (所有者权益) < 0` 触发 **+30 分**（净资产穿底赤字）。
-* **在建工程长期挂账不转固**：
-  * `在建工程 (CIP) / 固定资产净额 > 50%` 触发 **+15 分**（延缓折旧或借工程掏空资金）。
-* **其他应收/预付款项体外流转通道**：
-  * `(其他应收款 + 预付款项) / 总资产 > 10%` 触发 **+15 分**（非经营性资金占用）。
-* **研发支出过度资本化**：
-  * `研发资本化率 > 25%` 触发 **+15 分**。
-* **明股实债（少数股东损益严重倒挂）**：
-  * `少数股东权益 / 总所有者权益 > 40%`，但 `少数股东损益 / 净利润 < 5%`（触发 **+20 分**）。
-
-### 5.2 利润表操纵规则
-* **大宗贸易总额法刷单**：
-  * 营业收入规模巨大（$> \$1\text{B}$）但销售净利率 $< 0.5\%$；
-  * 触发 **+15 分**（无实质控制权的通道贸易虚刷规模）。
-* **主营巨亏依靠非经常性损益掩护**：
-  * 主营营业利润为负，依靠营业外收入/投资收益掩盖净利为正；
-  * 触发 **+20 分**（主营造血丧失靠财技保壳）。
-* **业绩滑坡期突击超额分红与股份回购 (长春高新式暴雷前掏空手法)**：
-  * 当期净利润同比下滑（$\Delta\text{NetIncome} < 0$），但当期分红与回购总额占净利润比例 $> 50\%$；
-  * 触发 **+15 分**（管理层预知未来行业政策打击或暴雷前，突击掏空真金白银现金流）。
-* **第四季度单季突发巨额“大洗澡” (Q4 Big-Bath 洗澡操纵)**：
-  * 前三季度累计净利润维持盈利，但第四季度单季突发巨亏（$< -\$30\text{M}$），单季亏损额吞噬前三季盈利达 $80\%$ 以上；
-  * 触发 **+20 分**（利用跨季度信息差突击计提资产减值与冲销，集中释放利空）。
-
-### 5.3 现金流量表勾稽断裂规则
-* **疑似体外循环洗钱（镜像对冲）**：
-  * 投资活动现金净流出持续巨大，与经营活动现金净流入呈现高度镜像（比例在 $0.85 \sim 1.15$）；
-  * 触发 **+20 分**（通过“投资流出 $\rightarrow$ 体外清洗 $\rightarrow$ 销售回流”伪造假现金流）。
-* **自由现金流持续失血与借新还旧**：
-  * 自由现金流 (FCF) 严重失血（$< -\$50\text{M}$）且完全依赖外部筹资借款；
-  * 触发 **+15 分**。
+1. **Revenue vs. Accounts Receivable Growth Scissors**:
+   $$\Delta \text{AR}\% - \Delta \text{Sales}\% > 25\% \quad \text{and} \quad \Delta \text{AR} > \$10\text{M}$$
+   * Triggers **+20 points** (aggressive credit terms, premature revenue recognition, or channel stuffing).
+2. **Inventory Growth vs. COGS Expansion Decoupling**:
+   $$\Delta \text{Inv}\% - \Delta \text{COGS}\% > 30\% \quad \text{and} \quad \Delta \text{Inv} > \$10\text{M}$$
+   * Triggers **+20 points** (deferred cost recognition to inflate gross margin, or fictitious phantom inventory).
+3. **Gross Margin Surge Counter to Collapsing Inventory Turnover**:
+   $$(\text{GM}_t - \text{GM}_{t-1}) > 3\% \quad \text{and} \quad \frac{\text{Turnover}_t}{\text{Turnover}_{t-1}} < 0.80$$
+   * Triggers **+20 points** (violates economic logic: declining inventory velocity accompanied by surging gross margins signals inventory overvaluation).
+4. **Malignant Cash Flow Decoupling (Paper Wealth Syndrome)**:
+   $$\text{Net Income} > 0 \quad \text{and} \quad \text{CFO} \le 0$$
+   * Triggers **+25 points** (positive net profit accompanied by negative operating cash flow).
+   * If $\text{CFO} / \text{Net Income} < 0.30$, triggers **+15 points**.
 
 ---
 
-## 6. 官方确凿重述 (SEC 8-K Item 4.02) 时效衰减与科研真值标签
+## 5. Deterministic Tri-Statement Forensic Auditing Rules
 
-针对 SEC Form 8-K 披露的官方重述（Restatements），系统进行了科学的场景拆分：
+### 5.1 Balance Sheet Forensics
+* **Simultaneous High Cash & High Debt (Restricted Cash Anomaly)**:
+  * `Cash / Total Assets > 20%` and `Interest-Bearing Debt / Total Assets > 30%`;
+  * Compounded by interest expenses eroding net income or cash yields $< 1\%$;
+  * Triggers **+20 – 25 points** (fictitious reported cash or pledged unencumbered deposits).
+* **Excessive Goodwill Overhang**:
+  * `Goodwill / Equity > 50%` triggers **+25 points** (impending massive write-down risk);
+  * `Goodwill / Equity > 30%` triggers **+15 points** (high impairment vulnerability).
+* **Balance Sheet Insolvency (Negative Equity)**:
+  * `Total Stockholders' Equity < 0` triggers **+30 points** (balance sheet insolvency).
+* **Stalled Construction in Progress (CIP)**:
+  * `CIP / Net PPE > 50%` triggers **+15 points** (delayed depreciation to prop up earnings or capital tunneling).
+* **Other Receivables / Advances Tunneling Channels**:
+  * `(Other Receivables + Advances) / Total Assets > 10%` triggers **+15 points** (related-party cash extraction).
+* **Excessive R&D Capitalization**:
+  * `R&D Capitalization Ratio > 25%` triggers **+15 points** (cost deferral).
+* **Shadow Debt (Minority Interest Disconnect)**:
+  * `Minority Interest / Total Equity > 40%`, yet `Minority Profit / Net Income < 5%` triggers **+20 points**.
 
-### 6.1 排雷评分时效衰减机制
-* **近 1 年内（$\le 365$ 天）发生 8-K Item 4.02 重述**：
-  * 处于暴雷敏感期，后续连环追溯调整与集体诉讼高发，计 **+20 分**。
-* **1 ~ 3 年历史重述**：
-  * 内控整改观察期，计 **+5 分**。
-* **超过 3 年的历史重述**：
-  * 判定历史问题已整改闭环，**0 分（不惩罚）**，避免对老历史误杀。
+### 5.2 Income Statement Manipulation Diagnostics
+* **Gross Invoicing Pass-Through Scheme**:
+  * High revenue ($> \$1\text{B}$) with negligible net margins ($< 0.5\%$);
+  * Triggers **+15 points** (commodity trading pass-through inflation without actual economic control).
+* **Core Operating Losses Masked by Non-Operating Windfalls**:
+  * Operating income is negative, while net income appears positive via non-operating gains;
+  * Triggers **+20 points** (loss of core profitability masked by non-recurring transactions).
+* **Pre-Crash Capital Tunneling via Surge Dividends**:
+  * Net income declines ($\Delta\text{NetIncome} < 0$), yet total dividends and share buybacks exceed $50\%$ of net income;
+  * Triggers **+15 points** (insiders draining corporate liquidity prior to operational deterioration).
+* **Fourth-Quarter Big-Bath Bathing**:
+  * First three quarters report cumulative profitability, but Q4 reports an abrupt, massive loss ($< -\$30\text{M}$) wiping out $> 80\%$ of annual gains;
+  * Triggers **+20 points** (concentrating write-downs to clear executive balance sheets).
 
-### 6.2 科研学术真值标签 (Ground Truth)
-无论何时发生过重述，该公司的对应历史财报在事实层面均已被官方确认为造假/重大错报：
-* 系统输出专门的布尔列：`target_is_restated_fraud = True/False`；
-* **专门用于量化因子回测、学术实证论文、机器学习模型训练时的黄金 Ground Truth 真实标签**。
+### 5.3 Cash Flow Decoupling & Recycling Diagnostics
+* **Mirror Hedging / Cash Recycling Loop**:
+  * Massive investing cash outflows closely mirror operating cash inflows (ratio within $0.85 – 1.15$);
+  * Triggers **+20 points** (funds cycled out through acquisitions/capex and laundered back as sales receipts).
+* **Chronic Free Cash Flow Drain with Debt Rollover**:
+  * Free Cash Flow (FCF) bleeding ($< -\$50\text{M}$) completely financed by external debt issuance;
+  * Triggers **+15 points** (Ponzi liquidity structure).
 
 ---
 
-## 7. 评分汇总机制与计算公式
+## 6. Official SEC Form 8-K Item 4.02 Restatement Architecture
 
-单票与批量扫描的综合风险分计算公式为：
+For official Big-R restatements reported under SEC Form 8-K Item 4.02 ("Non-Reliance on Previously Issued Financial Statements"), the engine provides dual-track processing:
+
+### 6.1 Live Trading Track (Exponential Time-Decay Penalty)
+* **Recent Restatements ($\le 365$ days)**:
+  * Sensitive high-risk period with recurring class-action litigation and subsequent restatement waves; penalizes **+20 points**.
+* **Historical Restatements (1 – 3 years ago)**:
+  * Remediation observation period; penalizes **+5 points**.
+* **Cleared Historical Restatements (> 3 years ago)**:
+  * Remediated clean records; penalizes **0 points** (eliminating false-positive penalties on successfully turned-around companies).
+
+### 6.2 Quantitative & Academic Research Track (Permanent Ground Truth)
+* Irrespective of elapsed time, any company with confirmed restatements is permanently tagged:
+  * `target_is_restated_fraud = True / False`
+* **Serves as the golden ground-truth label for quantitative alpha factor backtests, academic empirical papers, and supervised machine learning classifiers**.
+
+---
+
+## 7. Scoring Aggregation & Closed-Form Formulations
+
+The integrated risk score is evaluated via deterministic aggregation:
 
 $$\text{Raw Score} = \sum \text{Models Penalty} + \sum \text{Decoupling Penalty} + \sum \text{Statements Penalty} + \text{Restatement Penalty}$$
 
 $$\text{Total Risk Score} = \min(100, \text{Raw Score})$$
 
-* **纯代码自动化执行**：所有公式与条件全部以 NumPy/Pandas 列式向量化实现。
-* **极速吞吐**：10,000 份财报的完整评估可在 **0.033 秒**内全自动跑完，输出透明、可解释、且可逐项复核的排雷诊断报告。
+* **Columnar Vectorized Execution**: All scoring logic is compiled into high-throughput NumPy and Pandas vector operations.
+* **Extreme Throughput**: 10,000 corporate filings are evaluated in **0.033 seconds**, producing transparent, interpretable, and auditable diagnostic reports.

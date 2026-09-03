@@ -177,7 +177,7 @@ pytest tests/
 ## 🏛️ 详细评分逻辑与技术白皮书
 
 完整的数学公式推导、变量定义、扣分细则与实证依据，请参阅技术白皮书：
-👉 [**`FORENSIC_SCORING_METHODOLOGY.md`**](FORENSIC_SCORING_METHODOLOGY.md)
+👉 [**`FORENSIC_SCORING_METHODOLOGY_CN.md`**](FORENSIC_SCORING_METHODOLOGY_CN.md)
 
 ---
 
