@@ -42,6 +42,9 @@ sec_parquet/
 *.xls
 *_排雷总结研报.md
 *_体检简报.md
+*_Forensic_Executive_Summary.md
+*_Audit_Report_Summary.md
+*Summary.md
 ~$*
 AGENTS.md
 .agents/
