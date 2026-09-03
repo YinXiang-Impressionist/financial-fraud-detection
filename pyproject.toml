@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sec-forensic-engine"
+version = "1.0.0"
+description = "High-performance financial data lakehouse and deterministic quantitative forensic accounting fraud detection engine based on official SEC EDGAR & DERA filings."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "SEC Financial Lakehouse Authors" }
+]
+keywords = [
+    "sec",
+    "edgar",
+    "forensic-accounting",
+    "fraud-detection",
+    "beneish-m-score",
+    "altman-z-score",
+    "modified-jones",
+    "duckdb",
+    "quant",
+    "lakehouse"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+    "duckdb>=1.0.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "openpyxl>=3.1.0",
+    "requests>=2.28.0",
+    "tqdm>=4.66.0",
+    "pyarrow>=14.0.0",
+    "edgartools>=5.55.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+sec-forensic = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/your-repo/sec_financial_lakehouse"
+Documentation = "https://github.com/your-repo/sec_financial_lakehouse#readme"
+Repository = "https://github.com/your-repo/sec_financial_lakehouse.git"
+"Bug Tracker" = "https://github.com/your-repo/sec_financial_lakehouse/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["forensic_engine*", "pipelines*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers"
+markers = [
+    "integration: marks tests as slow integration tests requiring external SEC network access (deselect with '-m \"not integration\"')",
+    "unit: marks tests as fast, deterministic offline unit tests",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+select = ["E", "F", "W", "B", "I"]
+ignore = ["E501"]

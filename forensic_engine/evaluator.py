@@ -147,6 +147,17 @@ class ForensicEvaluator:
                 total_score += 20
                 all_warnings.append(f"【官方确凿重述】近1年内({days}天前)曾发布 8-K Item 4.02 官方承认前期财报存在实质性错报并失效")
 
+        # 行业性质识别 (检测是否为银行/保险/券商等金融机构 SIC 6000-6999)
+        sic_val = curr.get('sic') or record.get('sic') or ''
+        is_financial = bool(curr.get('is_financial') or record.get('is_financial'))
+        if not is_financial and sic_val:
+            try:
+                sic_num = int(str(sic_val).strip())
+                if 6000 <= sic_num <= 6999:
+                    is_financial = True
+            except Exception:
+                pass
+
         # 分值封顶 100
         final_score = min(100, total_score)
         if final_score >= 50:
@@ -162,12 +173,20 @@ class ForensicEvaluator:
             risk_level = "[稳健] 绿色正常"
             diag_summary = "【稳健】财务三张表勾稽严密稳健，各项计量排雷模型均处于安全区间"
 
-        notes_str = "\n".join([f"{i+1}. {w}" for i, w in enumerate(all_warnings)]) if all_warnings else "✅ 财务勾稽严密，未命中任何系统性财务造假与粉饰红旗。"
+        notes_lines = []
+        if is_financial:
+            notes_lines.append("ℹ️ 【金融机构特性提示】该实体属于银行/证券/保险等金融机构 (SIC 6xxx)，报表资产负债与现金流结构具有行业特殊性，传统商业企业 Beneish / Altman Z 等指标仅供参考。")
+        if all_warnings:
+            notes_lines.extend([f"{i+1}. {w}" for i, w in enumerate(all_warnings)])
+        else:
+            notes_lines.append("✅ 财务勾稽严密，未命中任何系统性财务造假与粉饰红旗。")
+        notes_str = "\n".join(notes_lines)
 
         return {
             "entity": curr.get('cik') or curr.get('code') or curr.get('symbol') or curr.get('name') or "Unknown",
             "name": curr.get('name', ''),
             "period": curr.get('period', ''),
+            "is_financial_institution": is_financial,
             "total_risk_score": final_score,
             "risk_level": risk_level,
             "diagnostic_summary": diag_summary,
@@ -254,6 +273,12 @@ class ForensicEvaluator:
             ('flag_op_loss_masked', "❌【主营亏损掩盖】核心主营业务营业利润实质亏损，依靠非经常性损益粉饰最终净利")
         ]
 
+        if 'sic' in df_norm.columns:
+            sic_s = pd.to_numeric(df_norm['sic'], errors='coerce')
+            df_norm['is_financial_institution'] = (sic_s >= 6000) & (sic_s <= 6999)
+        else:
+            df_norm['is_financial_institution'] = False
+
         active_flags = np.zeros(len(df_norm), dtype=int)
         for col_name, _ in flag_details:
             if col_name in df_norm.columns:
@@ -262,6 +287,8 @@ class ForensicEvaluator:
 
         def build_notes(row):
             reasons = []
+            if bool(row.get('is_financial_institution')):
+                reasons.append("ℹ️【金融机构特性提示】该实体属于银行/证券/保险等金融机构 (SIC 6xxx)，报表资产负债与现金流结构具有行业特殊性，传统商业企业 Beneish / Altman Z 等指标仅供参考。")
             for col, desc in flag_details:
                 if bool(row.get(col)):
                     reasons.append(desc)

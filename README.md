@@ -1,12 +1,15 @@
 # SEC Financial Lakehouse & Forensic Fraud Detection Engine 🚀
 ### 全美股财务数据湖仓与数理法务排雷审计系统
 
+[English Documentation](README_EN.md) | [中文说明文档](README.md)
+
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![edgar-tools](https://img.shields.io/badge/edgar--tools-5.55%2B-orange.svg)](https://github.com/edgarminers/edgatools)
 [![DuckDB](https://img.shields.io/badge/DuckDB-1.0%2B-yellow.svg)](https://duckdb.org/)
 [![Apache Parquet](https://img.shields.io/badge/Parquet-ZSTD-brightgreen.svg)](https://parquet.apache.org/)
 [![Performance](https://img.shields.io/badge/Speed-280%2C000%20filings%2Fsec-red.svg)](#)
 [![Zero-LLM](https://img.shields.io/badge/Logic-100%25%20Deterministic%20Pure%20Math-purple.svg)](#)
+[![CI Matrix](https://github.com/your-repo/sec_financial_lakehouse/actions/workflows/ci.yml/badge.svg)](https://github.com/your-repo/sec_financial_lakehouse/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 An ultra-fast, local financial data lakehouse and quantitative forensic accounting engine built on **SEC official filings** across **10,000+ US public companies**.
@@ -140,13 +143,19 @@ python main.py --scan
 python main.py --scan --all-years
 ```
 
-### 7. 运行自动化测试套件
+### 7. 经典历史舞弊案例复盘 Benchmark
+一键运行内置历史造假案（安然式经典激进操纵）与标杆稳健科技蓝筹对比：
 ```bash
-# 验证核心算法精度与 10,000 份报表向量化基准压测
-python tests/test_forensic_engine.py
+python examples/case_study_fraud_showcase.py
+```
 
-# 验证 SEC 官方接口与真实股票在线抓取
-python tests/test_edgar_pipeline.py AAPL
+### 8. 运行自动化测试套件
+```bash
+# 原生 unittest 模式
+python -m unittest discover tests
+
+# pytest 模式
+pytest tests/
 ```
 
 ---
@@ -155,6 +164,13 @@ python tests/test_edgar_pipeline.py AAPL
 
 完整的数学公式推导、变量定义、扣分细则与实证依据，请参阅技术白皮书：
 👉 [**`FORENSIC_SCORING_METHODOLOGY.md`**](FORENSIC_SCORING_METHODOLOGY.md)
+
+---
+
+## ⚖️ 免责声明 (Disclaimer)
+
+* **非投资建议**：本项目及产出的所有量化评分、风险等级与排雷结论仅供学术科研、量化回测与法务会计学习交流，不构成任何投资建议或证券买卖推荐。
+* **SEC 爬取合规**：使用在线抽取功能时，请严格遵守 SEC 官方访问规范（请求频率低于 10 次/秒，并设置合法 User-Agent 标识）。
 
 ---
 
