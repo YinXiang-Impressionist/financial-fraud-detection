@@ -192,9 +192,9 @@ $$Sloan = \frac{\text{Net Income} - \text{CFO}}{\text{Total Assets}}$$
 
 单票与批量扫描的综合风险分计算公式为：
 
-$$\text{Raw\_Score} = \sum \text{Models\_Penalty} + \sum \text{Decoupling\_Penalty} + \sum \text{Statements\_Penalty} + \text{Restatement\_Penalty}$$
+$$\text{Raw Score} = \sum \text{Models Penalty} + \sum \text{Decoupling Penalty} + \sum \text{Statements Penalty} + \text{Restatement Penalty}$$
 
-$$\text{Total\_Risk\_Score} = \min(100, \text{Raw\_Score})$$
+$$\text{Total Risk Score} = \min(100, \text{Raw Score})$$
 
 * **纯代码自动化执行**：所有公式与条件全部以 NumPy/Pandas 列式向量化实现。
 * **极速吞吐**：10,000 份财报的完整评估可在 **0.033 秒**内全自动跑完，输出透明、可解释、且可逐项复核的排雷诊断报告。

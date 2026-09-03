@@ -1,7 +1,10 @@
 # SEC Financial Lakehouse & Forensic Fraud Detection Engine 🚀
 ### 全美股财务数据湖仓与数理法务排雷审计系统
 
-[English](README.md) | [简体中文](README_CN.md)
+<p align="left">
+  <a href="README.md"><img src="https://img.shields.io/badge/Language-English-blue?style=for-the-badge" alt="English"></a>
+  <a href="README_CN.md"><img src="https://img.shields.io/badge/语言-简体中文-red?style=for-the-badge" alt="简体中文"></a>
+</p>
 
 [![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![edgar-tools](https://img.shields.io/badge/edgar--tools-5.55%2B-orange.svg)](https://github.com/edgarminers/edgatools)
