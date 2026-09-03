@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sec-forensic-engine"
-version = "1.0.0"
-description = "High-performance financial data lakehouse and deterministic quantitative forensic accounting fraud detection engine based on official SEC EDGAR & DERA filings."
+name = "financial-fraud-detection"
+version = "1.1.1"
+description = "High-performance forensic accounting and corporate fraud screening lakehouse for SEC EDGAR & financial statements."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

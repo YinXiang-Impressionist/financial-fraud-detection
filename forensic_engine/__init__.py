@@ -13,7 +13,10 @@ from .models.benfords_law import BenfordTest
 from .tag_mapping import normalize_dataframe_columns, normalize_record_dict
 from .report_generator import generate_market_scan_summary_md, generate_batch_summary_md
 
+__version__ = "1.1.1"
+
 __all__ = [
+    "__version__",
     "ForensicEvaluator",
     "generate_market_scan_summary_md",
     "generate_batch_summary_md",

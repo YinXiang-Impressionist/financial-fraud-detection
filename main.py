@@ -49,6 +49,7 @@ TEN_YEARS_SPAN_DESC = f"{DEFAULT_START_YEAR}-{CURRENT_YEAR}"
 
 # 运行时国际化支持 (默认英文，支持 --lang zh / --zh / FORENSIC_LANG=zh)
 CURRENT_LANG = os.environ.get("FORENSIC_LANG", "en").lower()
+__version__ = "1.1.1"
 
 def set_language(lang: str):
     global CURRENT_LANG
@@ -402,7 +403,7 @@ def run_interactive_menu():
         zh = is_zh()
         print("\n" + "=" * 74)
         if zh:
-            print("🌟 【SEC 美股财务数据分析与法务排雷平台 (交互式控制台)】")
+            print(f"🌟 【SEC 美股财务数据分析与法务排雷平台 v{__version__} (交互式控制台)】")
             print("=" * 74)
             print("当前语言: 中文 (按 [L] 切换为 English)")
             print("请选择您要执行的任务 (输入选项编号):")
@@ -417,7 +418,7 @@ def run_interactive_menu():
             print("  [L] 🌐 切换语言 (Switch to English)")
             print("  [0] 🚪 退出系统")
         else:
-            print("🌟 [SEC US Stock Financial Lakehouse & Forensic Audit Platform]")
+            print(f"🌟 [SEC US Stock Financial Lakehouse & Forensic Audit Platform v{__version__}]")
             print("=" * 74)
             print("Language: English (Press [L] to switch to 中文)")
             print("Please select an action (Enter number):")
@@ -571,7 +572,8 @@ def run_interactive_menu():
 def main():
     session_start = time.time()
 
-    parser = argparse.ArgumentParser(description="SEC US Stock Financial Forensic Engine & Lakehouse Console")
+    parser = argparse.ArgumentParser(description=f"SEC US Stock Financial Forensic Engine & Lakehouse Console v{__version__}")
+    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     
     # 语言支持 (默认英文)
     parser.add_argument("--lang", type=str, default="en", choices=["en", "zh"], help="Output language: 'en' (default) or 'zh' (Chinese)")
