@@ -38,6 +38,15 @@ def run_edgar_audit_integration(ticker: str = "NVDA") -> dict:
     return {**dossier, **report}
 
 
+try:
+    import pytest
+    integration_mark = pytest.mark.integration
+except ImportError:
+    def integration_mark(cls):
+        return cls
+
+
+@integration_mark
 class TestEdgarPipelineIntegration(unittest.TestCase):
     """EDGAR 在线抽取与集成测试套件"""
 
